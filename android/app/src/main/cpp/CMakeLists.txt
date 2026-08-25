@@ -30,7 +30,8 @@ set(IMGUI_SOURCES
     "${REPO_ROOT}/vendor/libp3d/vendor/imgui/imgui.cpp"
     "${REPO_ROOT}/vendor/libp3d/vendor/imgui/imgui_draw.cpp"
     "${REPO_ROOT}/vendor/libp3d/vendor/imgui/imgui_tables.cpp"
-    "${REPO_ROOT}/vendor/libp3d/vendor/imgui/imgui_widgets.cpp")
+    "${REPO_ROOT}/vendor/libp3d/vendor/imgui/imgui_widgets.cpp"
+    "${REPO_ROOT}/vendor/libp3d/vendor/imgui/imgui_demo.cpp")
 
 add_library(p3d STATIC ${P3D_CORE_SOURCES} ${P3D_GLES_SOURCES} ${IMGUI_SOURCES})
 target_include_directories(p3d PUBLIC
