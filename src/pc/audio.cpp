@@ -871,6 +871,13 @@ bool AudioEngine::Init() {
     config.periodSizeInFrames = 512;
     config.periods = 3;
 
+#if defined(__ANDROID__)
+    // Tag the stream as game audio so the system applies proper routing and
+    // volume heuristics (AAudio path; OpenSL falls back to STREAM_MEDIA).
+    config.aaudio.usage = ma_aaudio_usage_game;
+    config.aaudio.contentType = ma_aaudio_content_type_music;
+#endif
+
     if (ma_device_init(nullptr, &config, &g_device) != MA_SUCCESS) {
         LOG("AudioEngine: failed to init device");
         return false;
@@ -919,6 +926,26 @@ void AudioEngine::Shutdown() {
     g_initialized = false;
 
     LOG("AudioEngine: shutdown");
+}
+
+void AudioEngine::Suspend() {
+#if !defined(RC_PLATFORM_SWITCH) && !defined(RC_PLATFORM_NULL)
+    // ma_device_stop/start are documented safe from any thread except the
+    // callback thread; called from the NativeActivity shell thread.
+    if (g_initialized && ma_device_is_started(&g_device)) {
+        ma_device_stop(&g_device);
+        LOG("AudioEngine: suspended");
+    }
+#endif
+}
+
+void AudioEngine::Resume() {
+#if !defined(RC_PLATFORM_SWITCH) && !defined(RC_PLATFORM_NULL)
+    if (g_initialized && !ma_device_is_started(&g_device)) {
+        ma_device_start(&g_device);
+        LOG("AudioEngine: resumed");
+    }
+#endif
 }
 
 bool AudioEngine::IsInitialized() {

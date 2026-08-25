@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "pddi/gles/AndroidPlatform.h"
+#include "pc/audio.h"
 
 extern int GameMain(int argc, char** argv);
 bool RechanAndroidHandleInputEvent(AInputEvent* event);
@@ -131,6 +132,14 @@ void HandleCommand(android_app* app, int32_t cmd) {
             break;
         case APP_CMD_TERM_WINDOW:
             androidbridge::SetNativeWindow(nullptr);
+            break;
+        case APP_CMD_PAUSE:
+            // Backgrounded: silence the output device (the game loop parks on
+            // its own once the surface goes away).
+            AudioEngine::Suspend();
+            break;
+        case APP_CMD_RESUME:
+            AudioEngine::Resume();
             break;
         case APP_CMD_DESTROY:
             androidbridge::RequestExit();

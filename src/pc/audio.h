@@ -22,6 +22,11 @@ public:
     // Init/shutdown
     static bool Init();
     static void Shutdown();
+
+    // Lifecycle (Android backgrounding): stop/start the output device without
+    // tearing down voices/music state.
+    static void Suspend();
+    static void Resume();
     static bool IsInitialized();
 
     // Sample management (preloaded PCM in memory)

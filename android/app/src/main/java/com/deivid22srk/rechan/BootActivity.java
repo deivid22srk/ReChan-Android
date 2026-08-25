@@ -148,11 +148,32 @@ public class BootActivity extends Activity {
 
     private void startGameIfDiscReadyOrPick() {
         File discDir = new File(getFilesDir(), "discimage");
+        // Remove leftovers from interrupted copies: only complete images live here.
+        File[] parts = discDir.listFiles((dir, name) -> name.endsWith(".part"));
+        if (parts != null) {
+            for (File p : parts) {
+                p.delete();
+            }
+        }
         File[] images = discDir.listFiles((dir, name) -> {
             String lower = name.toLowerCase();
             return lower.endsWith(".bin") || lower.endsWith(".iso");
         });
         if (images != null && images.length > 0) {
+            // If the source ROM in the picked folder changed since the last
+            // copy (different name or size), refresh the internal copy.
+            SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
+            String savedName = sp.getString(KEY_COPIED_NAME, null);
+            String tree = sp.getString(KEY_TREE_URI, null);
+            if (savedName != null && tree != null) {
+                DocumentInfo info = findBestImage(Uri.parse(tree));
+                if (info != null && !info.displayName.equals(savedName)
+                        && info.size > 0 && info.size != sp.getLong(KEY_COPIED_SIZE, -1)) {
+                    new File(discDir, "game.bin").delete();
+                    copyImageAsync(Uri.parse(tree), info);
+                    return;
+                }
+            }
             startGame();
             return;
         }
@@ -273,16 +294,24 @@ public class BootActivity extends Activity {
 
         Thread worker = new Thread(() -> {
             File outFile = new File(getFilesDir(), "discimage/game.bin");
+            File partFile = new File(getFilesDir(), "discimage/game.bin.part");
             try {
-                File dir = outFile.getParentFile();
+                File dir = partFile.getParentFile();
                 if (dir != null && !dir.isDirectory() && !dir.mkdirs()) {
                     throw new IOException("mkdir failed: " + dir);
                 }
                 long total = info.size;
+                // Room for the copy plus the extracted game assets.
+                long need = Math.max(total, 600L * 1024 * 1024) + 700L * 1024 * 1024;
+                if (dir.getUsableSpace() < need) {
+                    throw new IOException("Espaço livre insuficiente no armazenamento "
+                            + "interno (necessário ~" + (need / 1048576) + " MB). "
+                            + "Libere espaço e tente de novo.");
+                }
                 long copied = 0;
                 long lastUiUpdate = 0;
                 try (InputStream in = getContentResolver().openInputStream(info.uri);
-                     OutputStream os = new FileOutputStream(outFile)) {
+                     OutputStream os = new FileOutputStream(partFile)) {
                     if (in == null) throw new IOException("openInputStream retornou null");
                     byte[] buf = new byte[1024 * 1024];
                     int read;
@@ -300,16 +329,24 @@ public class BootActivity extends Activity {
                             });
                         }
                     }
+                    os.flush();
+                    if (os instanceof FileOutputStream) {
+                        ((FileOutputStream) os).getFD().sync();
+                    }
                 }
-                if (total > 0 && outFile.length() != total) {
-                    throw new IOException("tamanho final divergente (" + outFile.length()
+                if (total > 0 && partFile.length() != total) {
+                    throw new IOException("tamanho final divergente (" + partFile.length()
                             + "/" + total + ")");
+                }
+                if (!partFile.renameTo(outFile)) {
+                    throw new IOException("rename game.bin.part -> game.bin falhou");
                 }
                 getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                         .putString(KEY_COPIED_NAME, info.displayName)
                         .putLong(KEY_COPIED_SIZE, total).apply();
                 runOnUiThread(() -> startGame());
             } catch (Exception e) {
+                partFile.delete();
                 outFile.delete();
                 final String msg = e.getMessage();
                 runOnUiThread(() -> fail("Falha ao copiar a imagem: " + msg));
