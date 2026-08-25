@@ -1266,6 +1266,9 @@ void Director::SetCodeSnip(s32* snip, Thing* thing) {
     codeSnipPtr = snip;
     g_codeSnipThing = thing; // PSX: gp[869] = thing
 
+    LOG("[Director] SetCodeSnip script=%p thing=%s", static_cast<const void*>(snip),
+        (thing && thing->GetName()) ? thing->GetName() : "null");
+
     const s32* deathScript = ResolveDirectorScriptVA(kDirectorScriptDeath);
     const s32* deathVolScript = ResolveDirectorScriptVA(kDirectorScriptDeathVol);
     if (snip == deathScript || snip == deathVolScript || snip == death || snip == death_vol) {
@@ -2237,6 +2240,23 @@ void Director::Process() {
                 // advancing scriptPtr — the script blocks on the bad opcode each frame
                 // rather than desyncing by consuming one word.
                 LOG("[Director] unknown opcode 0x%02X at scriptPtr=%p", static_cast<u32>(opcode), static_cast<const void*>(scriptPtr));
+                // Android diagnostics: dump the surrounding stream once per stuck
+                // address so the offending script can be identified offline.
+                {
+                    static const void* s_lastStuckPtr = nullptr;
+                    if (s_lastStuckPtr != scriptPtr) {
+                        s_lastStuckPtr = scriptPtr;
+                        LOG("[Director] stuck-script dump: scriptBase=%p codeSnipPtr=%p scriptState=%d",
+                            static_cast<const void*>(scriptBase),
+                            static_cast<const void*>(codeSnipPtr), scriptState);
+                        for (s32 i = -8; i <= 8; ++i) {
+                            const s32 w = scriptPtr[i];
+                            LOG("[Director]   scriptPtr[%d] @%p = 0x%08X (%d)",
+                                i, static_cast<const void*>(scriptPtr + i),
+                                static_cast<u32>(w), w);
+                        }
+                    }
+                }
                 field68 = 1;
                 break;
         }
@@ -2995,6 +3015,9 @@ void Director::ProcessDoorFunc() {
 
             default:
                 // PSX: unknown door tokens are ignored.
+                LOG("[Director] ProcessDoorFunc unknown token 0x%02X at scriptPtr=%p (base=%p)",
+                    static_cast<u32>(op), static_cast<const void*>(scriptPtr),
+                    static_cast<const void*>(scriptBase));
                 break;
         }
     }
