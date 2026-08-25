@@ -5,7 +5,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-set(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../..")
+# cpp -> main -> src -> app -> android -> repo root
+set(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../..")
 get_filename_component(REPO_ROOT "${REPO_ROOT}" ABSOLUTE)
 
 # --- native_app_glue -------------------------------------------------------
