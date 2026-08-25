@@ -67,6 +67,28 @@
 - [x] Workflow build.yml verde no GitHub Actions
 - [ ] APK instalado e validado no device via adb
 
+## Rodadas de correção (sub-agentes críticos)
+
+### Rodada 1 — build system (CI)
+1. REPO_ROOT do CMake com profundidade errada (4 vs 5 níveis) → build quebrado no CI. **Fix**: `../../../../..`
+2. `imgui_demo.cpp` faltando no link (DebugUI referencia ShowDemoWindow). **Fix**: adicionado.
+3. Validator do Gradle: lint-vital consumia assets gerados sem dependência. **Fix**: lint `checkReleaseBuilds=false` + dependsOn explícito nos merge*Assets.
+
+### Rodada 2 — runtime (revisões por área)
+4. **[CRÍTICO] Extrator de assets do APK não criava diretórios pais** (`pc/fonts` etc.) → 100% dos assets falhariam silenciosamente. **Fix**: `std::filesystem::create_directories` antes do fopen.
+5. **[CRÍTICO] Crash SAF**: `takePersistableUriPermission` com flag PERSISTABLE (0x41) → IllegalArgumentException ao selecionar pasta (reproduzido no device, log do usuário). **Fix**: máscara apenas READ|WRITE (0x3).
+6. **[CRÍTICO] Surface zumbi no resume**: pending window obsoleto no TERM + ausência de identidade da janela que originou a EGLSurface → tela preta após pause/resume rápido. **Fix**: contador de geração em `androidbridge` + `surfaceGen_` no display + teardown/rebuild por geração; republicação da janela em falha de resume.
+7. **[CRÍTICO] Áudio tocava em background** (device miniaudio nunca parava). **Fix**: `AudioEngine::Suspend()/Resume()` enganchados em APP_CMD_PAUSE/RESUME + usage `ma_aaudio_usage_game`.
+8. Cópia de ROM não-atômica (morte no meio = game.bin corrompido permanente). **Fix**: `.part` + fsync + rename + limpeza de residuais no boot.
+9. ROM trocada na pasta nunca recopiada. **Fix**: comparação name/size via prefs + re-cópia.
+10. Sem checagem de espaço em disco antes da cópia (~1,3 GB necessários). **Fix**: getUsableSpace() com mensagem clara.
+11. allowBackup=true colocaria a ROM de 628 MB no auto-backup do Google. **Fix**: `allowBackup=false`.
+12. HAT do D-pad com estado global único → cross-talk entre 2 controles. **Fix**: estado por deviceId.
+13. ANativeWindow acquire sem release (leak). **Fix**: pareamento acquire/release no shell.
+14. eglTerminate em caminhos de erro do InitDisplay no Android (display compartilhado). **Fix**: guards `#if !defined(RC_PLATFORM_ANDROID)`.
+15. finish() redundante pós-destroy. **Fix**: guarda `destroyRequested`.
+16. Cache do Gradle no CI (performance).
+
 ## Lições/problemas encontrados (atualizar durante o trabalho)
 
 - `glesDisplay::InitDisplay` precisa esperar a janela existir: android_main aguarda
@@ -75,3 +97,7 @@
 - D-pad do Android pode chegar como KEYCODE_DPAD_* ou HAT_X/HAT_Y — tratar ambos.
 - Triggers analógicos Android variam 0..1; converter para convenção GLFW (-1..1).
 - `AKEYCODE_BACK` deve mapear para Start/menu, não para sair do app.
+- SAF: `takePersistableUriPermission` aceita APENAS flags READ/WRITE (0x3).
+- Sempre copiar arquivos grandes com `.part` + rename (morte no meio = arquivo eternamente corrompido).
+- Transições TERM→INIT rápidas entre frames exigem rastreio de geração da janela.
+- APP_CMD_PAUSE/RESUME é o par correto para suspender áudio (não TERM/INIT_WINDOW).
