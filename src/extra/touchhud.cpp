@@ -113,6 +113,10 @@ void PublishFrame() {
         }
     }
     if (s_startPulseFrames > 0) {
+        // The gamepad state is only polled by PlatformInput when connected is
+        // set; a touch-only device has no physical pad, so mark the virtual
+        // pad connected for the duration of the pulse.
+        androidbridge::PostGamepadConnected(true);
         androidbridge::PostGamepadButton(GamepadButton::Start, s_startPulseFrames == 2);
         --s_startPulseFrames;
     }
