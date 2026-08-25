@@ -5,18 +5,21 @@ plugins {
 // ReChan-authored support files (fonts/textures/text) live at the repo root in
 // res/pc. They are synced into the APK assets and extracted on-device on first
 // launch; pc_manifest.txt lists every file for the native extractor.
+val gameAssetsOutDir = layout.buildDirectory.dir("generated/gameAssets")
+
 val syncGameSupportAssets = tasks.register<Sync>("syncGameSupportAssets") {
     val srcDir = rootProject.file("../res/pc")
     from(srcDir) {
         into("pc")
     }
-    into(layout.buildDirectory.dir("generated/gameAssets"))
+    into(gameAssetsOutDir)
     doLast {
+        val outDir = gameAssetsOutDir.get().asFile
         val paths = sortedSetOf<String>()
         srcDir.walkTopDown().filter { it.isFile }.forEach { f ->
             paths.add("pc/" + f.relativeTo(srcDir).invariantSeparatorsPath)
         }
-        File(destinationDir, "pc_manifest.txt").writeText(paths.joinToString("\n") + "\n")
+        File(outDir, "pc_manifest.txt").writeText(paths.joinToString("\n") + "\n")
     }
 }
 

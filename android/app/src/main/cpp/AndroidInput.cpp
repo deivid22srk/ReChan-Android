@@ -70,8 +70,29 @@ int HatToButtons(float hatX, float hatY) {
     return buttons;
 }
 
-void ApplyHatButtons(int wanted) {
-    static int applied = 0;
+void ApplyHatButtons(int32_t deviceId, int wanted) {
+    // Per-device diff state: a pad without HAT axes keeps emitting 0 and must
+    // not clear the D-pad held on a different controller.
+    struct HatState {
+        int32_t deviceId;
+        int applied;
+    };
+    static HatState states[8] = {};
+    static size_t count = 0;
+    HatState* state = nullptr;
+    for (size_t i = 0; i < count; ++i) {
+        if (states[i].deviceId == deviceId) {
+            state = &states[i];
+            break;
+        }
+    }
+    if (!state && count < 8) {
+        state = &states[count++];
+        state->deviceId = deviceId;
+        state->applied = 0;
+    }
+    if (!state) return;
+
     struct Diff {
         int bit;
         int button;
@@ -83,13 +104,13 @@ void ApplyHatButtons(int wanted) {
         {1 << GamepadButton::DpadRight, GamepadButton::DpadRight},
     };
     for (const auto& d : diffs) {
-        const bool wasDown = (applied & d.bit) != 0;
+        const bool wasDown = (state->applied & d.bit) != 0;
         const bool isDown = (wanted & d.bit) != 0;
         if (wasDown != isDown) {
             androidbridge::PostGamepadButton(d.button, isDown);
         }
     }
-    applied = wanted;
+    state->applied = wanted;
 }
 
 bool HandleKeyEvent(AInputEvent* event) {
@@ -146,6 +167,7 @@ bool HandleMotionEvent(AInputEvent* event) {
     androidbridge::PostGamepadAxis(GamepadAxis::RightTrigger, ClampAxis(rtrig * 2.0f - 1.0f));
 
     ApplyHatButtons(
+        AInputEvent_getDeviceId(event),
         HatToButtons(AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_HAT_X, 0),
                      AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_HAT_Y, 0)));
 

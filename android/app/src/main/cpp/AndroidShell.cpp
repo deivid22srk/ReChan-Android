@@ -6,6 +6,7 @@
 #include <android/native_window.h>
 #include <android_native_app_glue.h>
 
+#include <filesystem>
 #include <pthread.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -73,6 +74,11 @@ void ExtractManifestAssets(AAssetManager* mgr) {
                     }
                 }
 
+                const std::filesystem::path parent =
+                    std::filesystem::path(outPath).parent_path();
+                if (!parent.empty()) {
+                    std::filesystem::create_directories(parent);
+                }
                 FILE* out = fopen(outPath.c_str(), "wb");
                 if (!out) {
                     __android_log_print(ANDROID_LOG_ERROR, "rechan",

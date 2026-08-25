@@ -192,12 +192,15 @@ public class BootActivity extends Activity {
             return;
         }
         Uri treeUri = data.getData();
+        // takePersistableUriPermission only accepts READ/WRITE grant flags —
+        // filtering in FLAG_GRANT_PERSISTABLE_URI_PERMISSION here throws
+        // IllegalArgumentException ("only 0x3 are allowed").
         final int takeFlags = data.getFlags()
                 & (Intent.FLAG_GRANT_READ_URI_PERMISSION
-                        | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                        | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
         try {
             getContentResolver().takePersistableUriPermission(treeUri, takeFlags);
-        } catch (SecurityException ignored) {
+        } catch (SecurityException | IllegalArgumentException ignored) {
             // Some providers don't hand out persistable grants; proceed anyway.
         }
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
