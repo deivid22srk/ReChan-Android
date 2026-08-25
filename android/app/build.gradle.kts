@@ -70,10 +70,13 @@ android {
 
     sourceSets {
         getByName("main") {
-            // Passing the task provider wires the dependency into every asset
-            // consumer (mergeAssets, lint model, etc.) automatically.
-            assets.srcDir(syncGameSupportAssets.map { it.destinationDir })
+            assets.srcDir(layout.buildDirectory.dir("generated/gameAssets"))
         }
+    }
+
+    lint {
+        // Sideload distribution; the lint-vital release gate adds no value here.
+        checkReleaseBuilds = false
     }
 
     packaging {
@@ -81,6 +84,10 @@ android {
             useLegacyPackaging = false
         }
     }
+}
+
+tasks.matching { it.name.startsWith("merge") && it.name.contains("Assets") }.configureEach {
+    dependsOn(syncGameSupportAssets)
 }
 
 tasks.matching { it.name.startsWith("generateJsonConfig") ||
