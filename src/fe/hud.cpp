@@ -7,6 +7,9 @@
 #if CUSTOM_MENU
 #include "extra/customtext.h"
 #include "extra/customhudmgr.h"
+#if defined(RC_PLATFORM_ANDROID)
+#include "extra/touchcontrols.h"
+#endif
 #endif
 #include "xclib/xclib.h"
 #include "ai/humanoid.h"
@@ -126,6 +129,11 @@ void HUD::Display() {
     // all original HUD state/update behavior.
 #if CUSTOM_MENU
     g_customHudMgr.Render(*this);
+#if defined(RC_PLATFORM_ANDROID)
+    // On-screen touch controls drawn right after the game HUD (same overlay
+    // state, so they appear on top of the game frame).
+    touchcontrols::Render();
+#endif
 #else
     if (section) {
 #if FIX_ASPECT_RATIO

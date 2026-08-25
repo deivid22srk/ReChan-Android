@@ -252,6 +252,7 @@ void Render() {
     if (tm) {
         tm->SetFontByName("Menu");
         tm->SetColor(255, 255, 255, 255);
+        tm->SetPromptsEnabled(true);
     }
 
     for (int32_t i = 0; i < kControlCount; ++i) {
@@ -267,12 +268,12 @@ void Render() {
                                          pressed ? (u8)(fillA + 90) : fillA);
             ScreenDraw::DrawCircle(x, y, r, r, std::max(2.0f, r * 0.06f), 255, 255, 255, baseA);
             if (tm) {
-                const f32 textSize = r * 0.85f;
-                tm->SetScale(textSize / 48.0f, textSize / 48.0f);
+                // Center the label on the button, matching the menu's text pattern.
+                tm->SetAlignment(TextAlign_Center);
+                const f32 textScale = (r * 1.4f) / 48.0f;
+                tm->SetScale(SCREEN_SCALE_Y(textScale), SCREEN_SCALE_Y(textScale));
                 const TextBounds b = tm->MeasureString(kControls[i].label);
-                tm->PrintString(kControls[i].label,
-                    x - b.width / 2.0f,
-                    y - b.height / 2.0f);
+                tm->PrintString(kControls[i].label, x, y - b.height / 2.0f);
             }
         }
         else {
@@ -334,13 +335,14 @@ void RenderMovieSkip() {
 
     if (g_textManager) {
         g_textManager->SetFontByName("Menu");
-        g_textManager->SetScale(r / 20.0f, r / 20.0f);
         g_textManager->SetColor(255, 255, 255, 255);
+        g_textManager->SetPromptsEnabled(true);
+        g_textManager->SetAlignment(TextAlign_Center);
+        const f32 textScale = (r * 1.6f) / 48.0f;
+        g_textManager->SetScale(SCREEN_SCALE_Y(textScale), SCREEN_SCALE_Y(textScale));
         const char* skipLabel = "Pular";
         const TextBounds b = g_textManager->MeasureString(skipLabel);
-        g_textManager->PrintString(skipLabel,
-            skipX - b.width / 2.0f,
-            skipY - b.height / 2.0f);
+        g_textManager->PrintString(skipLabel, skipX, skipY - b.height / 2.0f);
     }
 }
 

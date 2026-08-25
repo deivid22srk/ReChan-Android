@@ -9,9 +9,6 @@
 #include "p3d/camera.h"
 #include "pddi/pddi.h"
 #include "pddi/pddidev.h"
-#if defined(RC_PLATFORM_ANDROID)
-#include "extra/touchcontrols.h"
-#endif
 
 Display* g_display = nullptr;
 s32 Display::s_defaultScreenMode = ScreenMode_Windowed;
@@ -330,10 +327,7 @@ void Display::EndFrame() {
     ++frameCounter;
     p3d::context->EndFrame();
     p3d::display->RenderOverlay();
-#if defined(RC_PLATFORM_ANDROID)
-    // On-screen touch controls drawn on top of the game frame.
-    touchcontrols::Render();
-#elif defined(RC_PLATFORM_SWITCH)
+#if defined(RC_PLATFORM_SWITCH)
     DrawDebugInfo();
 #endif
     const f64 t0 = Time::GetTimeInSeconds();
