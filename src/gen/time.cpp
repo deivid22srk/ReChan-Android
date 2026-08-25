@@ -1,0 +1,133 @@
+#include "gen/time.h"
+#include <cmath>
+#include <chrono>
+#include <thread>
+
+// PSX: gp-relative global
+Time* g_time = nullptr;
+
+FrameProfile g_frameProfile;
+
+Time::Time() { MARKFUNCTION(0x80044950); }
+Time::~Time() { MARKFUNCTION(0x800449E8); }
+
+void Time::InternalOpen() { MARKFUNCTION(0x80044A10); }
+void Time::InternalClose() { MARKFUNCTION(0x80044A18); }
+
+void Time::InternalReset() {
+    MARKFUNCTION(0x80044A38);
+    frameCounter = 0;
+#if HIGH_FPS_PLAY_PRESENTATION
+    ResetPlayPresentationState();
+#endif
+}
+
+void Time::Step() {
+    MARKFUNCTION(0x80044A40);
+    frameCounter++;
+}
+
+void Time::Tick(f32 realDt) {
+    if (realDt < 0.0001f) realDt = 0.0001f;
+    if (realDt > 0.25f)  realDt = 0.25f;
+    deltaTime = realDt;
+    fps = 1.0f / realDt;
+}
+
+#if HIGH_FPS_PLAY_PRESENTATION
+void Time::ResetPlayPresentationState() {
+    playLogicAccumulator = 0.0f;
+    playPresentationAlpha = 0.0f;
+    playLogicStepCount = 1;
+}
+
+s32 Time::BeginPlayFixedStep() {
+    static constexpr f32 kPlayLogicDt = 1.0f / 30.0f;
+    static constexpr s32 kMaxLogicStepsPerFrame = 4;
+    static constexpr f32 kMaxAccumulatedTime = kPlayLogicDt * (f32)kMaxLogicStepsPerFrame;
+
+    if (targetFPS == 30) {
+        playLogicAccumulator = 0.0f;
+        playPresentationAlpha = 1.0f;
+        playLogicStepCount = 1;
+        return playLogicStepCount;
+    }
+
+    playLogicAccumulator += deltaTime;
+    if (playLogicAccumulator > kMaxAccumulatedTime) {
+        playLogicAccumulator = kMaxAccumulatedTime;
+    }
+
+    playLogicStepCount = 0;
+    while (playLogicAccumulator >= kPlayLogicDt && playLogicStepCount < kMaxLogicStepsPerFrame) {
+        playLogicAccumulator -= kPlayLogicDt;
+        ++playLogicStepCount;
+    }
+
+    playPresentationAlpha = playLogicAccumulator / kPlayLogicDt;
+    if (playPresentationAlpha < 0.0f) {
+        playPresentationAlpha = 0.0f;
+    }
+    if (playPresentationAlpha > 1.0f) {
+        playPresentationAlpha = 1.0f;
+    }
+
+    return playLogicStepCount;
+}
+#endif
+
+f64 Time::GetTimeInSeconds() {
+    static auto sStart = std::chrono::steady_clock::now();
+    auto now = std::chrono::steady_clock::now();
+    return std::chrono::duration<f64>(now - sStart).count();
+}
+
+void Time::Sleep(f32 seconds) {
+    if (seconds > 0.0f) {
+        std::this_thread::sleep_for(std::chrono::duration<f32>(seconds));
+    }
+}
+
+void Time::WaitForFrameEnd(f64 frameStart) const {
+    f32 target = GetTargetDt();
+    if (target <= 0.0f) {
+        return;
+    }
+
+    // Adaptive 1ms sleep estimator keeps limiter accurate across platforms,
+    // including schedulers with coarse default sleep granularity.
+    static f64 sleepMean = 0.001f;
+    static f64 sleepM2 = 0.0;
+    static u32 sleepSamples = 1;
+    static f64 sleepEstimate = 0.002f;
+
+    const f64 frameEnd = frameStart + (f64)target;
+    while (true) {
+        f64 now = GetTimeInSeconds();
+        f64 remaining = frameEnd - now;
+        if (remaining <= 0.0) {
+            break;
+        }
+
+        if (remaining > sleepEstimate) {
+            f64 sleepStart = GetTimeInSeconds();
+            Sleep(0.001f);
+            f64 observed = GetTimeInSeconds() - sleepStart;
+
+            sleepSamples++;
+            f64 delta = observed - sleepMean;
+            sleepMean += delta / (f64)sleepSamples;
+            f64 delta2 = observed - sleepMean;
+            sleepM2 += delta * delta2;
+
+            f64 variance = sleepM2 / (f64)(sleepSamples - 1);
+            if (variance < 0.0) {
+                variance = 0.0;
+            }
+            sleepEstimate = sleepMean + std::sqrt(variance);
+        }
+        else {
+            std::this_thread::yield();
+        }
+    }
+}

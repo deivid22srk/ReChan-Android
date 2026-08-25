@@ -1,0 +1,642 @@
+#
+# Frontend
+#
+[FE_BACK]
+Indietro
+
+[FE_TTL]
+Schermata Titolo
+
+[FE_MNM]
+Menu Principale
+
+[FE_XTG]
+Esci dal gioco
+
+[FE_QUI]
+Uscita...
+
+[FE_NWG]
+Nuova Partita
+
+[FE_CONT]
+Continua
+
+[FE_AUTO_WARN]
+Questo gioco dispone del salvataggio automatico. Non spegnere il gioco quando vedi questa icona.
+
+[FE_AUTO_FAIL]
+Salvataggio automatico non riuscito.
+
+[FE_WARN]
+Avviso
+
+[FE_STG]
+Avvia Gioco
+
+[FE_PST]
+PREMI UN PULSANTE QUALSIASI PER INIZIARE
+
+[FE_TLC]
+Premi <ACT:MENU_CONFIRM> per continuare
+
+[FE_TLHD]
+Risultati Livello
+
+[FE_TLFG]
+Combattimento
+
+[FE_TLCB]
+Combo
+
+[FE_TLSY]
+Stile
+
+[FE_TLGD]
+Grado
+
+[FE_TLRD]
+Draghi Rossi
+
+[FE_TLGO]
+Draghi Dorati
+
+[FE_TLBG]
+BONUS +1 DRAGO DORATO
+
+[FE_TLDB]
+BONUS DRAGO
+
+[FE_TLMB]
+BONUS FILM SBLOCCATO
+
+[FE_RSM]
+Riprendi Partita
+
+[FE_QTG]
+Esci dal gioco
+
+[FE_LDG]
+Carica Partita
+
+[FE_SVG]
+Salva Partita
+
+[FE_DLG]
+Elimina Partita
+
+[FE_SLE]
+Slot salvataggio %d vuoto
+
+[FE_SLD]
+Slot salvataggio %d - %s
+
+[FE_SLAE]
+Salvataggio auto vuoto
+
+[FE_SLAD]
+Salvataggio auto - %s
+
+[FE_SVAUTO]
+SALVATAGGIO AUTO
+
+[FE_SVAUTO_SHORT]
+AUTO
+
+[FE_SVMAN]
+SLOT SALVATAGGIO
+
+[FE_SVEMPTY]
+VUOTO
+
+[FE_SVC_SLOT]
+SLOT
+
+[FE_SVC_DATE]
+DATA
+
+[FE_SVC_LIVES]
+VITE
+
+[FE_SVC_RED]
+ROSSI
+
+[FE_SVC_GOLD]
+ORO
+
+[FE_SVC_ZONE]
+ZONA SUCCESSIVA
+
+[FE_OPT]
+Opzioni
+
+[FE_LNG]
+Lingua:
+
+[FE_LGEN]
+Inglese
+
+[FE_LGER]
+Tedesco
+
+[FE_LFRE]
+Francese
+
+[FE_LITA]
+Italiano
+
+[FE_LSPA]
+Spagnolo
+
+[FE_CTL]
+Impostazioni Controller
+
+[FE_DIS]
+Impostazioni Video
+
+[FE_SND]
+Impostazioni Audio
+
+[FE_CRE]
+Crediti
+
+[FE_BCK]
+Indietro
+
+[FE_CSH]
+Vibrazione:
+
+[FE_CCF]
+Configurazione:
+
+[FE_BPTS]
+Icone pulsanti:
+
+[FE_DEFX]
+Predefinito (Xbox)
+
+[FE_NX]
+Nintendo Switch
+
+[FE_CSD]
+DISPLAY STATO
+
+[FE_CCT]
+CONTATORE
+
+[FE_CMV]
+MUOVI GIOCATORE
+
+[FE_CNU]
+NON USATO
+
+[FE_CMO]
+MENU
+
+[FE_CST]
+SCHIVATA LATERALE
+
+[FE_CDR]
+CAPRIOLA
+
+[FE_CPN]
+PUGNO
+
+[FE_CKK]
+CALCIO
+
+[FE_CGR]
+AFFERRA
+
+[FE_CJP]
+SALTA
+
+[FE_CF1]
+1
+
+[FE_CF2]
+2
+
+[FE_CF3]
+3
+
+[FE_KBD]
+Assegnazione Tasti
+
+[FE_KBACT]
+Azione
+
+[FE_KBBN1]
+Tasto 1
+
+[FE_KBBN2]
+Tasto 2
+
+[JUMP]
+Salta
+
+[PUNCH]
+Pugno
+
+[KICK]
+Calcio
+
+[GRAB]
+Afferra
+
+[DIVE_ROLL]
+Tuffo rotolata
+
+[STRAFE]
+Movimento laterale
+
+[COUNTER]
+Contrattacco
+
+[STATUS_DISPLAY]
+Stato
+
+[MOVE_UP]
+Su
+
+[MOVE_DOWN]
+Giu
+
+[MOVE_LEFT]
+Sinistra
+
+[MOVE_RIGHT]
+Destra
+
+[OPEN_CLOSE_MENU]
+Apri/Chiudi menu
+
+[MENU_UP]
+Menu su
+
+[MENU_DOWN]
+Menu giu
+
+[MENU_LEFT]
+Menu sinistra
+
+[MENU_RIGHT]
+Menu destra
+
+[MENU_CONFIRM]
+Conferma
+
+[MENU_BACK]
+Indietro
+
+[MENU_CLEAR]
+Cancella
+
+[FE_KBPR]
+Premi un tasto o il mouse
+
+[FE_KBNAV]
+<ACT:MENU_UP>/<ACT:MENU_DOWN> Azione
+
+[FE_KBSLT]
+<ACT:MENU_LEFT>/<ACT:MENU_RIGHT> Slot
+
+[FE_KBBND]
+<ACT:MENU_CONFIRM> Assegna
+
+[FE_KBCLR]
+<ACT:MENU_CLEAR> Rimuovi
+
+[FE_KBCAN]
+<ACT:MENU_BACK> Annulla
+
+[FE_KBBCK]
+<ACT:MENU_BACK> Indietro
+
+[FE_HPADJ]
+<ACT:MENU_LEFT>/<ACT:MENU_RIGHT> Regola
+
+[FE_HPSCR]
+<ACT:MENU_UP>/<ACT:MENU_DOWN> Scorri
+
+[FE_HPSET]
+<ACT:MENU_CONFIRM> Imposta
+
+[FE_HPTGL]
+<ACT:MENU_CONFIRM> Cambia
+
+[FE_HPSEL]
+<ACT:MENU_CONFIRM> Seleziona
+
+[FE_HPBCK]
+<ACT:MENU_BACK> Indietro
+
+[FE_NTD]
+Non usato
+
+[FE_RES]
+Risoluzione:
+
+[FE_FSC]
+Modalita schermo:
+
+[FE_SCW]
+Finestra
+
+[FE_SCB]
+Senza bordi
+
+[FE_SCF]
+Schermo intero
+
+[FE_VYS]
+V-Sync:
+
+[FE_FPS]
+Frame Rate:
+
+[FE_FR30]
+30
+
+[FE_FR60]
+60
+
+[FE_FR120]
+120
+
+[FE_MAX]
+Illimitato
+
+[FE_MSA]
+Anti-Aliasing:
+
+[FE_DSH]
+Ombre dinamiche:
+
+[FE_DSS]
+Morbidezza ombre:
+
+[FE_A2X]
+2X
+
+[FE_A4X]
+4X
+
+[FE_A8X]
+8X
+
+[FE_A16X]
+16X
+
+[FE_EFV]
+Volume Effetti:
+
+[FE_MSV]
+Volume Musica:
+
+[FE_VCV]
+Volume Voce:
+
+[FE_STR]
+Stereo:
+
+[FE_NGQ]
+Sei sicuro di voler iniziare una nuova partita? Tutti i progressi correnti andranno persi. Continuare?
+
+[FE_SVQ]
+Sei sicuro di voler salvare in questo slot?
+
+[FE_DLQ]
+Sei sicuro di voler eliminare questo slot di salvataggio?
+
+[FE_SVD]
+Partita salvata.
+
+[FE_DLD]
+Salvataggio eliminato.
+
+[FE_LDQ]
+Tutti i progressi non salvati andranno persi. Continuare con il caricamento?
+
+[FE_YS]
+Si
+
+[FE_NO]
+No
+
+[FE_OK]
+OK
+
+[FE_OFF]
+Off
+
+[FE_LOW]
+Bassa
+
+[FE_MED]
+Media
+
+[FE_HIG]
+Alta
+
+[FE_VHI]
+Molto alta
+
+[FE_ON]
+On
+
+[FE_AUT]
+Auto
+
+[FE_XGM]
+Sei sicuro di voler uscire dal gioco?
+
+[FE_PSD]
+Pausa
+
+[FE_RSG]
+Riprendi Partita
+
+[FE_EXL]
+Esci dal livello
+
+[FE_EXLR]
+Sei sicuro di voler uscire da questo livello?
+
+[FE_GRD]
+VALUTAZIONE:
+
+[FE_LVL]
+Livello %d
+
+[FE_ZONE]
+Zona %d
+
+[FE_LOC_CHN]
+Chinatown
+
+[FE_LOC_WTR]
+Lungomare
+
+[FE_LOC_SWR]
+Fogne
+
+[FE_LOC_ROF]
+Tetti
+
+[FE_LOC_FAC]
+Fabbrica
+
+[FE_LOC_TMP]
+Tempio Shaolin
+
+[FE_LOC_DST]
+Selezione destinazione
+
+[FE_HPNM]
+JACKIE
+
+[FE_HBOS]
+BOSS
+
+[FE_DTG]
+DRAGHI DORATI TOTALI  %d
+
+[FE_DTRV]
+VAI A
+
+[FE_DCMP]
+COMPLETATO
+
+[FE_DNCM]
+NON COMPLETATO
+
+#
+# Auto Updater
+#
+[FE_UPD]
+Aggiornamento Gioco
+
+[FE_UPD_CHK]
+Ricerca aggiornamenti in corso...
+
+[FE_UPD_UTD]
+Sei aggiornato!
+
+[FE_UPD_ERR]
+Controllo aggiornamenti non riuscito: %s
+
+[FE_UPD_CUR]
+Versione attuale: %s
+
+[FE_UPD_LAT]
+Nuova versione disponibile: %s
+
+[FE_UPD_NOTES]
+Novita
+
+[FE_UPD_NOCHANGE]
+Nessun changelog disponibile.
+
+[FE_UPD_DL]
+Scarica aggiornamento
+
+[FE_UPD_RMD]
+Ricordamelo piu tardi
+
+[FE_UPD_CHKNOW]
+Controlla aggiornamenti
+
+[FE_UPD_PRG]
+Download in corso... %d%%
+
+[FE_UPD_CNL]
+Annulla
+
+[FE_UPD_RDY]
+Aggiornamento scaricato e pronto per l'installazione.
+
+[FE_UPD_INST]
+Installa e riavvia
+
+[FE_UPD_INSTG]
+Installazione in corso...
+
+[FE_UPD_AVAIL]
+Aggiornamento disponibile
+
+#
+# Asset Extraction
+#
+[FE_ASSET_TITLE]
+File di gioco
+
+[FE_ASSET_MISS]
+I file di gioco PSX non sono stati trovati. Posiziona l'immagine disco originale (.bin o .iso) nella cartella "discimage", poi clicca su Estrai file.
+
+[FE_ASSET_EXT]
+Estrai file
+
+[FE_ASSET_RESCAN]
+Cerca di nuovo
+
+[FE_ASSET_SCAN]
+Ricerca immagine disco...
+
+[FE_ASSET_NONE]
+Nessun file .bin o .iso trovato nella cartella "discimage". Aggiungi la tua immagine disco e riprova.
+
+[FE_ASSET_MULTI]
+Trovati piu file .bin/.iso in "discimage". Mantieni solo un file e riprova.
+
+[FE_ASSET_ONE]
+Immagine disco trovata. Pronta per l'estrazione.
+
+[FE_ASSET_EXTG]
+Estrazione dei file di gioco in corso...
+
+[FE_ASSET_ERR]
+Estrazione non riuscita: %s
+
+#
+# Mod e trucchi
+#
+[FE_MODS]
+Mod
+
+[FE_MOD_NONE]
+Nessuna mod installata
+
+[FE_CHEATS]
+Trucchi
+
+[FE_CH_DRAG]
+Tutti i draghi:
+
+[FE_CH_LEVL]
+Tutti i livelli:
+
+[FE_CH_GOD]
+Modalita dio:
+
+[FE_CH_PNCH]
+One Punch Man:
+
+[FE_CH_HVN]
+Verso il paradiso:
+
+[FE_CH_BOBL]
+Testa Ballerina:
+
+[FE_CH_QUAKE]
+Terremoto Acrobatico:
+
+[FE_CH_MIRR]
+Mondo Specchio:
+
+#
+# PSX overrides
+#
+
+[0xC131692D]
+Premi <ACT:OPEN_CLOSE_MENU> per aprire il menu principale.
