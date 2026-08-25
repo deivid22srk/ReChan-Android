@@ -122,6 +122,10 @@ HudContext GetContext() {
     return s_context;
 }
 
+bool ConsumeMenuTap(float& x, float& y) {
+    return androidbridge::ConsumeTouchTapPos(&x, &y);
+}
+
 } // namespace touchhud
 
 // --- JNI surface for the Java touch overlay (com.deivid22srk.rechan.hud) ---

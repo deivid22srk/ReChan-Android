@@ -26,6 +26,10 @@ void PublishFrame();
 // Current context (also readable from any thread).
 HudContext GetContext();
 
+// Consume a pending menu tap (screen pixel position) published by the touch
+// input pump. Used by feCustomMenuMgr for direct entry hit-testing.
+bool ConsumeMenuTap(float& x, float& y);
+
 } // namespace touchhud
 
 #endif // RC_PLATFORM_ANDROID

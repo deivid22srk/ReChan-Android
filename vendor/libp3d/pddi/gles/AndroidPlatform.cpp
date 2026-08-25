@@ -19,6 +19,9 @@ std::atomic<float> g_touchX{0.0f};
 std::atomic<float> g_touchY{0.0f};
 std::atomic<bool> g_touchDown{false};
 std::atomic<bool> g_tapQueued{false};
+std::atomic<bool> g_tapPosQueued{false};
+std::atomic<float> g_tapPosX{0.0f};
+std::atomic<float> g_tapPosY{0.0f};
 } // namespace
 
 void SetNativeWindow(NativeWindowHandle window) {
@@ -107,6 +110,21 @@ void QueueTouchTap() {
 
 bool ConsumeTouchTap() {
     return g_tapQueued.exchange(false, std::memory_order_acq_rel);
+}
+
+void QueueTouchTapPos(float x, float y) {
+    g_tapPosX.store(x, std::memory_order_relaxed);
+    g_tapPosY.store(y, std::memory_order_relaxed);
+    g_tapPosQueued.store(true, std::memory_order_release);
+}
+
+bool ConsumeTouchTapPos(float* x, float* y) {
+    if (!g_tapPosQueued.exchange(false, std::memory_order_acq_rel)) {
+        return false;
+    }
+    if (x) x[0] = g_tapPosX.load(std::memory_order_relaxed);
+    if (y) y[0] = g_tapPosY.load(std::memory_order_relaxed);
+    return true;
 }
 
 static_assert(GamepadButton::COUNT <= 32, "buttons fit in u32 bitmask");

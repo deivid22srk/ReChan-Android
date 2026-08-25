@@ -184,6 +184,13 @@ bool HandleMotionEvent(AInputEvent* event) {
                     (action == AMOTION_EVENT_ACTION_CANCEL) ||
                     (AMotionEvent_getPointerId(event, idx) == s_touchPointer);
                 if (primaryLifted && s_touchPointer != -1) {
+                    // A lift at the (possibly moved) position is a tap: publish
+                    // it for direct menu hit-testing on the game thread.
+                    const int32_t nidx = (action == AMOTION_EVENT_ACTION_UP) ? 0 : idx;
+                    if (action != AMOTION_EVENT_ACTION_CANCEL) {
+                        androidbridge::QueueTouchTapPos(
+                            AMotionEvent_getX(event, nidx), AMotionEvent_getY(event, nidx));
+                    }
                     s_touchPointer = -1;
                     androidbridge::SetTouchMouse(0.0f, 0.0f, false);
                 }

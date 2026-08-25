@@ -70,4 +70,9 @@ bool GetTouchMouse(float* x, float* y);
 void QueueTouchTap();
 bool ConsumeTouchTap();
 
+// Touch tap position for direct menu hit-testing (input thread → game thread).
+// The game thread processes these each frame in the menu's Invoke().
+void QueueTouchTapPos(float x, float y);
+bool ConsumeTouchTapPos(float* x, float* y);
+
 } // namespace androidbridge

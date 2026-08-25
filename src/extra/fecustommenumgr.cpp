@@ -18,6 +18,9 @@
 #include "xclib/xclib.h"
 #include "gen/scoremgr.h"
 #include "gen/world.h"
+#if defined(RC_PLATFORM_ANDROID)
+#include "extra/touchhud.h"
+#endif
 #include "p3d/texture.h"
 #include "pddi/pdditex.h"
 #include "pddi/pddishad.h"
@@ -1177,6 +1180,57 @@ void feCustomMenuMgr::UpdateMouseCursorVisibility() {
     }
 }
 
+#if defined(RC_PLATFORM_ANDROID)
+void feCustomMenuMgr::ProcessTouchTaps() {
+    float tapX = 0.0f, tapY = 0.0f;
+    while (touchhud::ConsumeMenuTap(tapX, tapY)) {
+        const f32 screenW = g_display ? (f32)g_display->GetScreenWidth() : DEFAULT_SCREEN_WIDTH;
+        const f32 screenH = g_display ? (f32)g_display->GetScreenHeight() : DEFAULT_SCREEN_HEIGHT;
+        const f32 aspect = g_display ? g_display->GetAspectRatio() : (4.0f / 3.0f);
+#if FIX_ASPECT_RATIO
+        const f32 effectiveW = screenW * DEFAULT_ASPECT_RATIO / aspect;
+        const f32 offsetX = (screenW - effectiveW) * 0.5f;
+        const f32 psxX = (tapX - offsetX) * DEFAULT_SCREEN_WIDTH / effectiveW;
+#else
+        const f32 psxX = tapX * DEFAULT_SCREEN_WIDTH / screenW;
+#endif
+        const f32 psxY = tapY * DEFAULT_SCREEN_HEIGHT / screenH;
+
+        const PageDef& page = m_pages[m_currPage];
+        const s32 panelX = DEF_WINDOW_CENTER_X - page.frameW / 2;
+        const s32 panelY = DEF_WINDOW_CENTER_Y - page.frameH / 2;
+        const s32 rowSpan = (page.numEntries > 0) ? ((page.numEntries - 1) * DEF_ROW_STEP) : 0;
+        const s32 extraH = CalcPageExtraHeight(page);
+        const s32 entryBlockH = DEF_CONTENT_PAD + rowSpan + DEF_ROW_TEXT_H + extraH;
+        const s32 bodyAvailH = page.frameH - DEF_TITLE_BAR_H - DEF_BOTTOM_BAR_H - DEF_CONTENT_TOP_PAD - DEF_CONTENT_BOTTOM_PAD;
+        const s32 bodyCenterPad = (bodyAvailH > entryBlockH) ? ((bodyAvailH - entryBlockH) / 2) : 0;
+        const s32 firstY = panelY + DEF_TITLE_BAR_H + DEF_CONTENT_TOP_PAD + bodyCenterPad + DEF_CONTENT_PAD;
+        const s32 baseLabelX = panelX + DEF_LABEL_X_PAD;
+        const s32 baseValueX = panelX + page.frameW - DEF_VALUE_X_PAD;
+        const s32 baseCenterX = DEF_WINDOW_CENTER_X;
+
+        if (psxX >= (f32)panelX && psxX < (f32)(panelX + page.frameW)) {
+            for (s32 i = 0; i < page.numEntries; i++) {
+                s32 rowTop = 0;
+                ResolveEntryLayout(page, i, firstY, baseLabelX, baseValueX, baseCenterX,
+                                   &rowTop, nullptr, nullptr, nullptr, nullptr);
+                const s32 rowH = DEF_ROW_STEP + GetEntryExtraHeight(page, page.entries[i]);
+                if (psxY >= (f32)rowTop && psxY < (f32)(rowTop + rowH)) {
+                    if (page.entries[i].type != EntryType_Info) {
+                        LOG("[MenuTouch] tap page=%d entry=%d psx=(%.1f,%.1f) -> confirm",
+                            (s32)m_currPage, i, psxX, psxY);
+                        m_cursor = i;
+                        PlaySound(FE_SND_MENU_5);
+                        Confirm();
+                    }
+                    break;
+                }
+            }
+        }
+    }
+}
+#endif
+
 static constexpr f32 kPopupFadeSec = 0.15f;
 static constexpr f32 kPopupCloseGapSec = 0.2f;
 
@@ -1214,6 +1268,11 @@ s32 feCustomMenuMgr::Invoke() {
 
     m_result = 1;
     UpdateMouseCursorVisibility();
+
+#if defined(RC_PLATFORM_ANDROID)
+    // Direct touchscreen taps against menu entries (no mouse emulation).
+    ProcessTouchTaps();
+#endif
 
     // Popup overlay active: hold all normal page input/navigation until it
     // closes. Closing fade (+ post-fade gap) plays out first; GetPopupFadeAlpha()
