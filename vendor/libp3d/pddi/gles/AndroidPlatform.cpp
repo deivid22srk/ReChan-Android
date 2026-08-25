@@ -22,6 +22,15 @@ std::atomic<bool> g_tapQueued{false};
 std::atomic<bool> g_tapPosQueued{false};
 std::atomic<float> g_tapPosX{0.0f};
 std::atomic<float> g_tapPosY{0.0f};
+
+// Multi-touch slots for the on-screen controls.
+struct TouchSlot {
+    std::atomic<int32_t> id{-1};
+    std::atomic<float> x{0.0f};
+    std::atomic<float> y{0.0f};
+    std::atomic<bool> active{false};
+};
+TouchSlot g_touchSlots[kMaxTouchPoints];
 } // namespace
 
 void SetNativeWindow(NativeWindowHandle window) {
@@ -125,6 +134,33 @@ bool ConsumeTouchTapPos(float* x, float* y) {
     if (x) x[0] = g_tapPosX.load(std::memory_order_relaxed);
     if (y) y[0] = g_tapPosY.load(std::memory_order_relaxed);
     return true;
+}
+
+void SetTouchPoint(int32_t slot, int32_t id, float x, float y, bool active) {
+    if (slot < 0 || slot >= kMaxTouchPoints) return;
+    g_touchSlots[slot].id.store(id, std::memory_order_relaxed);
+    g_touchSlots[slot].x.store(x, std::memory_order_relaxed);
+    g_touchSlots[slot].y.store(y, std::memory_order_relaxed);
+    g_touchSlots[slot].active.store(active, std::memory_order_relaxed);
+}
+
+void ClearTouchPoint(int32_t slot) {
+    if (slot < 0 || slot >= kMaxTouchPoints) return;
+    g_touchSlots[slot].id.store(-1, std::memory_order_relaxed);
+    g_touchSlots[slot].active.store(false, std::memory_order_relaxed);
+}
+
+int32_t LoadTouchPoints(TouchPoint* out, int32_t max) {
+    int32_t count = 0;
+    for (int32_t s = 0; s < kMaxTouchPoints && count < max; ++s) {
+        if (!g_touchSlots[s].active.load(std::memory_order_relaxed)) continue;
+        TouchPoint& p = out[count++];
+        p.id = g_touchSlots[s].id.load(std::memory_order_relaxed);
+        p.x = g_touchSlots[s].x.load(std::memory_order_relaxed);
+        p.y = g_touchSlots[s].y.load(std::memory_order_relaxed);
+        p.active = true;
+    }
+    return count;
 }
 
 static_assert(GamepadButton::COUNT <= 32, "buttons fit in u32 bitmask");

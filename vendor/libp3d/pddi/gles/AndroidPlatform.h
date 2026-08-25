@@ -65,6 +65,19 @@ void SetTouchMouse(float x, float y, bool down);
 // Returns true while a finger is down; always writes the latest position.
 bool GetTouchMouse(float* x, float* y);
 
+// --- Multi-touch for on-screen controls (input thread -> game thread) ---
+static constexpr int32_t kMaxTouchPoints = 4;
+struct TouchPoint {
+    int32_t id = -1;   // Android pointer id, -1 = slot free
+    float x = 0.0f;    // surface pixel coordinates
+    float y = 0.0f;
+    bool active = false;
+};
+
+void SetTouchPoint(int32_t slot, int32_t id, float x, float y, bool active);
+void ClearTouchPoint(int32_t slot);
+int32_t LoadTouchPoints(TouchPoint* out, int32_t max);
+
 // One-shot tap notification consumed by the game loop (used to turn a tap
 // into a Start press on the "press any button" title screen).
 void QueueTouchTap();

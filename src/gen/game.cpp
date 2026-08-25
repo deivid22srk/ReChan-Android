@@ -1,6 +1,9 @@
 // game.cpp
 #include "common.h"
 #include "gen/game.h"
+#if defined(RC_PLATFORM_ANDROID)
+#include "extra/touchcontrols.h"
+#endif
 #include "gen/display.h"
 #include "gen/envmgr.h"
 #include "gen/camera.h"
@@ -2324,8 +2327,15 @@ void Game::PlayMovie(const char* name, s32 skippable, s32 unloadLevel) {
 
             player->AdvanceFrame();
 
+#if defined(RC_PLATFORM_ANDROID)
+            touchcontrols::UpdateMovieSkip();
+#endif
+
             g_display->BeginFrame();
             player->Render();
+#if defined(RC_PLATFORM_ANDROID)
+            touchcontrols::RenderMovieSkip();
+#endif
             g_display->EndFrame();
         }
     }

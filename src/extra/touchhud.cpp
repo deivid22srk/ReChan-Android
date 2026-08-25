@@ -17,6 +17,7 @@
 #include "ai/player.h"
 #include "ai/humanoid.h"
 #include "extra/fecustommenumgr.h"
+#include "extra/touchcontrols.h"
 #include "pddi/gles/AndroidPlatform.h"
 
 namespace touchhud {
@@ -86,6 +87,9 @@ HudContext ComputeContext() {
 void PublishFrame() {
     s_context = ComputeContext();
     androidbridge::SetHudContext(static_cast<u32>(s_context));
+
+    // On-screen touch controls (joystick + action buttons).
+    touchcontrols::Update();
 
     // Touch diagnostics (throttled): confirm the touch->mouse chain end to end.
     static s32 s_diagCounter = 0;

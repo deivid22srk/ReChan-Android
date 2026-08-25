@@ -71,7 +71,104 @@ int HatToButtons(float hatX, float hatY) {
 }
 
 // Pointer id of the first finger driving the emulated mouse (-1 = none).
+// The multi-touch slots (androidbridge) track all fingers; the primary
+// index is the first slot that was assigned (used for menu hover).
 int32_t s_touchPointer = -1;
+
+// Find a free slot in the androidbridge multi-touch array, or return the
+// slot that already holds the given pointer id.
+static int32_t FindTouchSlot(int32_t pointerId, bool create) {
+    androidbridge::TouchPoint points[androidbridge::kMaxTouchPoints];
+    const int32_t cnt = androidbridge::LoadTouchPoints(points, androidbridge::kMaxTouchPoints);
+    for (int32_t i = 0; i < cnt; ++i) {
+        if (points[i].id == pointerId) return i;
+    }
+    if (!create) return -1;
+    // First free slot
+    for (int32_t i = 0; i < androidbridge::kMaxTouchPoints; ++i) {
+        if (!points[i].active) return i;
+    }
+    return -1; // all slots full
+}
+
+static void UpdateMouseFromPrimary() {
+    androidbridge::TouchPoint pts[androidbridge::kMaxTouchPoints];
+    const int32_t cnt = androidbridge::LoadTouchPoints(pts, androidbridge::kMaxTouchPoints);
+    // The primary pointer is s_touchPointer; find its position.
+    for (int32_t i = 0; i < cnt; ++i) {
+        if (pts[i].id == s_touchPointer) {
+            androidbridge::SetTouchMouse(pts[i].x, pts[i].y, false);
+            return;
+        }
+    }
+    // Primary pointer went away — reset mouse.
+    s_touchPointer = -1;
+    androidbridge::SetTouchMouse(0.0f, 0.0f, false);
+}
+
+static void HandleTouchEvent(AInputEvent* event) {
+    const int32_t action = AMotionEvent_getAction(event);
+    const int32_t actionCode = action & AMOTION_EVENT_ACTION_MASK;
+    const int32_t idx = (action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK)
+                            >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
+    const int32_t pointerId = AMotionEvent_getPointerId(event, idx);
+    const float x = AMotionEvent_getX(event, idx);
+    const float y = AMotionEvent_getY(event, idx);
+
+    switch (actionCode) {
+        case AMOTION_EVENT_ACTION_DOWN:
+        case AMOTION_EVENT_ACTION_POINTER_DOWN: {
+            int32_t slot = FindTouchSlot(-1, true);
+            if (slot >= 0) {
+                androidbridge::SetTouchPoint(slot, pointerId, x, y, true);
+                if (s_touchPointer == -1) {
+                    s_touchPointer = pointerId;
+                    androidbridge::SetTouchMouse(x, y, false);
+                    androidbridge::QueueTouchTap();
+                }
+            }
+            break;
+        }
+        case AMOTION_EVENT_ACTION_MOVE: {
+            for (int32_t i = 0; i < AMotionEvent_getPointerCount(event); ++i) {
+                const int32_t pid = AMotionEvent_getPointerId(event, i);
+                const int32_t slot = FindTouchSlot(pid, false);
+                if (slot >= 0) {
+                    androidbridge::SetTouchPoint(
+                        slot, pid, AMotionEvent_getX(event, i), AMotionEvent_getY(event, i), true);
+                }
+            }
+            UpdateMouseFromPrimary();
+            break;
+        }
+        case AMOTION_EVENT_ACTION_UP:
+        case AMOTION_EVENT_ACTION_POINTER_UP:
+        case AMOTION_EVENT_ACTION_CANCEL: {
+            const int32_t slot = FindTouchSlot(pointerId, false);
+            if (slot >= 0) {
+                if (actionCode != AMOTION_EVENT_ACTION_CANCEL) {
+                    androidbridge::QueueTouchTapPos(x, y);
+                }
+                androidbridge::ClearTouchPoint(slot);
+                if (pointerId == s_touchPointer) {
+                    s_touchPointer = -1;
+                    // If another finger is still down, adopt it as primary.
+                    androidbridge::TouchPoint pts[androidbridge::kMaxTouchPoints];
+                    const int32_t cnt = androidbridge::LoadTouchPoints(pts, androidbridge::kMaxTouchPoints);
+                    if (cnt > 0) {
+                        s_touchPointer = pts[0].id;
+                        androidbridge::SetTouchMouse(pts[0].x, pts[0].y, false);
+                    } else {
+                        androidbridge::SetTouchMouse(0.0f, 0.0f, false);
+                    }
+                }
+            }
+            break;
+        }
+        default:
+            break;
+    }
+}
 
 void ApplyHatButtons(int32_t deviceId, int wanted) {
     // Per-device diff state: a pad without HAT axes keeps emitting 0 and must
@@ -150,55 +247,10 @@ bool HandleMotionEvent(AInputEvent* event) {
     // Touchscreen: feed the mouse POSITION for hover only (button state is
     // intentionally NOT emulated — direct taps handled by the menu's
     // ProcessTouchTaps would otherwise double-activate alongside a mouse
-    // left-click Confirm).
+    // left-click Confirm). Multi-touch slots drive the on-screen controls.
     if ((source & AINPUT_SOURCE_TOUCHSCREEN) != 0) {
-        const int32_t action = AMotionEvent_getAction(event);
-        const int32_t actionCode = action & AMOTION_EVENT_ACTION_MASK;
-        const int32_t idx = (action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK)
-                                >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
-        switch (actionCode) {
-            case AMOTION_EVENT_ACTION_DOWN:
-            case AMOTION_EVENT_ACTION_POINTER_DOWN: {
-                if (s_touchPointer == -1) {
-                    s_touchPointer = AMotionEvent_getPointerId(event, idx);
-                    androidbridge::SetTouchMouse(
-                        AMotionEvent_getX(event, idx), AMotionEvent_getY(event, idx), false);
-                    androidbridge::QueueTouchTap();
-                }
-                return true;
-            }
-            case AMOTION_EVENT_ACTION_MOVE: {
-                for (int32_t i = 0; i < AMotionEvent_getPointerCount(event); ++i) {
-                    if (AMotionEvent_getPointerId(event, i) == s_touchPointer) {
-                        androidbridge::SetTouchMouse(
-                            AMotionEvent_getX(event, i), AMotionEvent_getY(event, i), false);
-                        break;
-                    }
-                }
-                return true;
-            }
-            case AMOTION_EVENT_ACTION_UP:
-            case AMOTION_EVENT_ACTION_POINTER_UP:
-            case AMOTION_EVENT_ACTION_CANCEL: {
-                const bool primaryLifted =
-                    (actionCode == AMOTION_EVENT_ACTION_UP) ||
-                    (actionCode == AMOTION_EVENT_ACTION_CANCEL) ||
-                    (AMotionEvent_getPointerId(event, idx) == s_touchPointer);
-                if (primaryLifted && s_touchPointer != -1) {
-                    // A lift at the (possibly moved) position is a tap: publish
-                    // it for direct menu hit-testing on the game thread.
-                    if (actionCode != AMOTION_EVENT_ACTION_CANCEL) {
-                        androidbridge::QueueTouchTapPos(
-                            AMotionEvent_getX(event, idx), AMotionEvent_getY(event, idx));
-                    }
-                    s_touchPointer = -1;
-                    androidbridge::SetTouchMouse(0.0f, 0.0f, false);
-                }
-                return true;
-            }
-            default:
-                return true;
-        }
+        HandleTouchEvent(event);
+        return true;
     }
 
     if ((source & kSourceGamepadMask) == 0) {
