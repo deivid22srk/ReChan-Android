@@ -1158,6 +1158,17 @@ void feCustomMenuMgr::UpdateMouseCursorVisibility() {
         m_mouseInputActive = true;
     }
 
+    // A held mouse button / touchscreen finger must also wake the mouse path:
+    // Android feeds touch-as-mouse, and on a tap the position doesn't move and
+    // the click edge can be missed (e.g. finger down before the menu opens),
+    // which would otherwise leave m_mouseInputActive stuck false.
+    if (!m_mouseInputActive && g_actionInput->IsMouseButtonDown(MouseBtn::Left)) {
+        m_mouseInputActive = true;
+        if (g_display) {
+            g_display->SetCursorVisible(true);
+        }
+    }
+
     if (nonMouseInput && m_mouseInputActive) {
         m_mouseInputActive = false;
         if (g_display) {
