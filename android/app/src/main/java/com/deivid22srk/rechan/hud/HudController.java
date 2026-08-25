@@ -36,6 +36,7 @@ public class HudController implements InputManager.InputDeviceListener {
     private InputManager inputManager;
     private boolean gamepadConnected;
     private boolean panelAttached;
+    private boolean touchPassThrough;
     private boolean running;
     private int lastContext = -1;
 
@@ -140,11 +141,42 @@ public class HudController implements InputManager.InputDeviceListener {
     };
 
     private void applyContext(int context) {
-        if (gamepadConnected || context == HudBridge.CONTEXT_HIDDEN) {
+        // Menus and non-interactive states: hide the overlay AND let touches
+        // fall through to the engine (the game's own menu code handles them
+        // as mouse input). Gameplay contexts: overlay consumes touches.
+        final boolean gameplay = context == HudBridge.CONTEXT_ON_FOOT
+                || context == HudBridge.CONTEXT_CLIMBING;
+        setTouchPassThrough(!gameplay);
+        if (gamepadConnected || !gameplay) {
             hudView.animateVisibility(false, context);
         }
         else {
             hudView.animateVisibility(true, context);
+        }
+    }
+
+    /** Toggle FLAG_NOT_TOUCHABLE on the panel window so taps pass through to
+     *  the game window (and from there into the native input queue). */
+    private void setTouchPassThrough(boolean passThrough) {
+        if (hudView == null || !panelAttached || passThrough == touchPassThrough) {
+            return;
+        }
+        touchPassThrough = passThrough;
+        try {
+            android.view.WindowManager wm =
+                    (android.view.WindowManager) activity.getSystemService(Context.WINDOW_SERVICE);
+            android.view.WindowManager.LayoutParams params =
+                    (android.view.WindowManager.LayoutParams) hudView.getLayoutParams();
+            if (passThrough) {
+                params.flags |= android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+            }
+            else {
+                params.flags &= ~android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+            }
+            wm.updateViewLayout(hudView, params);
+            log("touchPassThrough=" + passThrough);
+        } catch (Exception e) {
+            log("passThrough update failed: " + e);
         }
     }
 
@@ -156,6 +188,16 @@ public class HudController implements InputManager.InputDeviceListener {
             hudView.releaseAll(); // no stuck virtual buttons while hidden
         }
         hudView.animateVisibility(!gamepadConnected, lastContext);
+        // With a gamepad in charge the overlay never needs touches; without
+        // one, pass-through is decided by the gameplay context (applyContext).
+        if (gamepadConnected) {
+            setTouchPassThrough(true);
+        }
+        else {
+            final boolean gameplay = lastContext == HudBridge.CONTEXT_ON_FOOT
+                    || lastContext == HudBridge.CONTEXT_CLIMBING;
+            setTouchPassThrough(!gameplay);
+        }
         if (animate) {
             log("gamepad " + (gamepadConnected ? "connected -> HUD hidden"
                                               : "disconnected -> HUD shown"));

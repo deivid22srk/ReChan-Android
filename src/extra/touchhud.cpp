@@ -23,6 +23,7 @@ namespace touchhud {
 
 namespace {
 HudContext s_context = HudContext::Hidden;
+s32 s_startPulseFrames = 0;
 
 bool IsClimbState(s32 actionState) {
     switch (actionState) {
@@ -40,22 +41,44 @@ bool IsClimbState(s32 actionState) {
 }
 
 HudContext ComputeContext() {
-    if (!g_game || g_game->GetState() != GameState::Play) {
-        return HudContext::Hidden;
-    }
+    // Custom menu overlays (asset setup, pause, title/FE menus) always win:
+    // they need d-pad style navigation, available with or without a gamepad.
     if (g_feCustomMenuMgr && g_feCustomMenuMgr->IsActive()) {
+        return HudContext::Menu;
+    }
+
+    if (!g_game) {
         return HudContext::Hidden;
     }
-    if (g_directorActive != 0 || (g_director && g_director->scriptState != 0)) {
-        // Cutscene / NIS running.
-        return HudContext::Hidden;
-    }
-    if (const Player* player = Player::s_player) {
-        if (IsClimbState(player->actionState)) {
-            return HudContext::Climbing;
+
+    switch (g_game->GetState()) {
+        case GameState::Title:
+        case GameState::TitleLoop:
+        case GameState::OpenFE:
+        case GameState::FE:
+        case GameState::Menu:
+        case GameState::DbgMenu:
+        case GameState::LocationMenu:
+        case GameState::OpenLocationMenu:
+            return HudContext::Menu;
+
+        case GameState::Play: {
+            if (g_directorActive != 0 || (g_director && g_director->scriptState != 0)) {
+                // Cutscene / NIS running.
+                return HudContext::Hidden;
+            }
+            if (const Player* player = Player::s_player) {
+                if (IsClimbState(player->actionState)) {
+                    return HudContext::Climbing;
+                }
+            }
+            return HudContext::OnFoot;
         }
+
+        default:
+            // Intros, movies, loading, credits, error loops: touch is useless.
+            return HudContext::Hidden;
     }
-    return HudContext::OnFoot;
 }
 
 } // namespace
@@ -63,6 +86,21 @@ HudContext ComputeContext() {
 void PublishFrame() {
     s_context = ComputeContext();
     androidbridge::SetHudContext(static_cast<u32>(s_context));
+
+    // Title screen "press any button": a tap anywhere becomes a Start press
+    // (the custom menu is inactive during that phase, so taps aren't menu
+    // clicks yet). Two frames so the pad edge is sampled reliably.
+    if (androidbridge::ConsumeTouchTap()) {
+        const bool menuActive = g_feCustomMenuMgr && g_feCustomMenuMgr->IsActive();
+        const bool onTitle = g_game && g_game->GetState() == GameState::TitleLoop;
+        if (!menuActive && onTitle && s_startPulseFrames == 0) {
+            s_startPulseFrames = 2;
+        }
+    }
+    if (s_startPulseFrames > 0) {
+        androidbridge::PostGamepadButton(GamepadButton::Start, s_startPulseFrames == 2);
+        --s_startPulseFrames;
+    }
 }
 
 HudContext GetContext() {

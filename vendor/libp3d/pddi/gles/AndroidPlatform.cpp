@@ -15,6 +15,10 @@ std::atomic<uint32_t> g_heldButtons{0};
 std::atomic<float> g_axes[GamepadAxis::COUNT] = {};
 std::atomic<bool> g_padConnected{false};
 std::atomic<uint32_t> g_hudContext{0};
+std::atomic<float> g_touchX{0.0f};
+std::atomic<float> g_touchY{0.0f};
+std::atomic<bool> g_touchDown{false};
+std::atomic<bool> g_tapQueued{false};
 } // namespace
 
 void SetNativeWindow(NativeWindowHandle window) {
@@ -83,6 +87,26 @@ void SetHudContext(uint32_t context) {
 
 uint32_t LoadHudContext() {
     return g_hudContext.load(std::memory_order_relaxed);
+}
+
+void SetTouchMouse(float x, float y, bool down) {
+    g_touchX.store(x, std::memory_order_relaxed);
+    g_touchY.store(y, std::memory_order_relaxed);
+    g_touchDown.store(down, std::memory_order_relaxed);
+}
+
+bool GetTouchMouse(float* x, float* y) {
+    if (x) x[0] = g_touchX.load(std::memory_order_relaxed);
+    if (y) y[0] = g_touchY.load(std::memory_order_relaxed);
+    return g_touchDown.load(std::memory_order_relaxed);
+}
+
+void QueueTouchTap() {
+    g_tapQueued.store(true, std::memory_order_release);
+}
+
+bool ConsumeTouchTap() {
+    return g_tapQueued.exchange(false, std::memory_order_acq_rel);
 }
 
 static_assert(GamepadButton::COUNT <= 32, "buttons fit in u32 bitmask");

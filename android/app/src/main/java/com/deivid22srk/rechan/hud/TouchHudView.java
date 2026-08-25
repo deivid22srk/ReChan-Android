@@ -186,10 +186,14 @@ public class TouchHudView extends View {
     // --- Context handling -----------------------------------------------------
 
     private void applyContextToControls() {
-        // Climbing: joystick + jump only. OnFoot: everything.
-        boolean climbing = context == HudBridge.CONTEXT_CLIMBING;
+        // Climbing: joystick + jump only. OnFoot: everything. Menu/Hidden:
+        // nothing interactive (the engine handles touches natively there and
+        // the controller hides this view + passes touches through).
+        final boolean climbing = context == HudBridge.CONTEXT_CLIMBING;
+        final boolean gameplay = context == HudBridge.CONTEXT_CLIMBING
+                || context == HudBridge.CONTEXT_ON_FOOT;
         for (Control c : controls) {
-            c.interactive = !climbing || c == joystick || "A".equals(c.id);
+            c.interactive = gameplay && (!climbing || c == joystick || "A".equals(c.id));
         }
     }
 

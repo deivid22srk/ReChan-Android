@@ -58,4 +58,16 @@ PadSnapshot LoadPadSnapshot();
 void SetHudContext(uint32_t context);
 uint32_t LoadHudContext();
 
+// --- Touch-as-mouse (input thread -> game thread) ---
+// Feeds the GLES display's mouse stubs so the engine's own menu code
+// (hover + left-click) handles touch directly, exactly like a PC mouse.
+void SetTouchMouse(float x, float y, bool down);
+// Returns true while a finger is down; always writes the latest position.
+bool GetTouchMouse(float* x, float* y);
+
+// One-shot tap notification consumed by the game loop (used to turn a tap
+// into a Start press on the "press any button" title screen).
+void QueueTouchTap();
+bool ConsumeTouchTap();
+
 } // namespace androidbridge

@@ -165,8 +165,24 @@ public:
     void PollEvents() override;
 
     bool IsKeyDown(int) override { return false; }
+
+#if defined(RC_PLATFORM_ANDROID)
+    // Touch-as-mouse: fed by the NativeActivity input pump via androidbridge.
+    bool IsMouseButtonDown(int button) override {
+        if (button != 0) return false;
+        float x, y;
+        return androidbridge::GetTouchMouse(&x, &y);
+    }
+    void GetMousePosition(double& x, double& y) override {
+        float fx, fy;
+        androidbridge::GetTouchMouse(&fx, &fy);
+        x = fx;
+        y = fy;
+    }
+#else
     bool IsMouseButtonDown(int) override { return false; }
     void GetMousePosition(double& x, double& y) override { x = 0.0; y = 0.0; }
+#endif
 
     void SetIcon(int, int, const unsigned char*) override {}
 

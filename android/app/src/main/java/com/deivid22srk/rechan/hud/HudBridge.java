@@ -13,6 +13,7 @@ public final class HudBridge {
     public static final int CONTEXT_HIDDEN = 0;
     public static final int CONTEXT_ON_FOOT = 1;
     public static final int CONTEXT_CLIMBING = 2;
+    public static final int CONTEXT_MENU = 3;
 
     // pddi GamepadButton (GLFW-style layout)
     public static final int BTN_A = 0;

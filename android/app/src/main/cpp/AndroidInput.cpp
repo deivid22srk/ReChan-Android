@@ -70,6 +70,9 @@ int HatToButtons(float hatX, float hatY) {
     return buttons;
 }
 
+// Pointer id of the first finger driving the emulated mouse (-1 = none).
+int32_t s_touchPointer = -1;
+
 void ApplyHatButtons(int32_t deviceId, int wanted) {
     // Per-device diff state: a pad without HAT axes keeps emitting 0 and must
     // not clear the D-pad held on a different controller.
@@ -143,6 +146,54 @@ bool HandleKeyEvent(AInputEvent* event) {
 
 bool HandleMotionEvent(AInputEvent* event) {
     const int32_t source = AInputEvent_getSource(event);
+
+    // Touchscreen: emulate a mouse for the engine's own menu code (hover +
+    // left-click) and queue taps for game-loop decisions (title screen).
+    if ((source & AINPUT_SOURCE_TOUCHSCREEN) != 0) {
+        const int32_t action = AMotionEvent_getAction(event);
+        switch (action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) {
+            case AMOTION_EVENT_ACTION_DOWN:
+            case AMOTION_EVENT_ACTION_POINTER_DOWN: {
+                const int32_t idx = (action >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT)
+                                        & 0xff;
+                if (s_touchPointer == -1) {
+                    s_touchPointer = AMotionEvent_getPointerId(event, idx);
+                    androidbridge::SetTouchMouse(
+                        AMotionEvent_getX(event, idx), AMotionEvent_getY(event, idx), true);
+                    androidbridge::QueueTouchTap();
+                }
+                return true;
+            }
+            case AMOTION_EVENT_ACTION_MOVE: {
+                for (int32_t i = 0; i < AMotionEvent_getPointerCount(event); ++i) {
+                    if (AMotionEvent_getPointerId(event, i) == s_touchPointer) {
+                        androidbridge::SetTouchMouse(
+                            AMotionEvent_getX(event, i), AMotionEvent_getY(event, i), true);
+                        break;
+                    }
+                }
+                return true;
+            }
+            case AMOTION_EVENT_ACTION_UP:
+            case AMOTION_EVENT_ACTION_POINTER_UP:
+            case AMOTION_EVENT_ACTION_CANCEL: {
+                const int32_t idx = (action >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT)
+                                        & 0xff;
+                const bool primaryLifted =
+                    (action == AMOTION_EVENT_ACTION_UP) ||
+                    (action == AMOTION_EVENT_ACTION_CANCEL) ||
+                    (AMotionEvent_getPointerId(event, idx) == s_touchPointer);
+                if (primaryLifted && s_touchPointer != -1) {
+                    s_touchPointer = -1;
+                    androidbridge::SetTouchMouse(0.0f, 0.0f, false);
+                }
+                return true;
+            }
+            default:
+                return true;
+        }
+    }
+
     if ((source & kSourceGamepadMask) == 0) {
         return false;
     }
