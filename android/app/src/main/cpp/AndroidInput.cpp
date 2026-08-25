@@ -147,8 +147,10 @@ bool HandleKeyEvent(AInputEvent* event) {
 bool HandleMotionEvent(AInputEvent* event) {
     const int32_t source = AInputEvent_getSource(event);
 
-    // Touchscreen: emulate a mouse for the engine's own menu code (hover +
-    // left-click) and queue taps for game-loop decisions (title screen).
+    // Touchscreen: feed the mouse POSITION for hover only (button state is
+    // intentionally NOT emulated — direct taps handled by the menu's
+    // ProcessTouchTaps would otherwise double-activate alongside a mouse
+    // left-click Confirm).
     if ((source & AINPUT_SOURCE_TOUCHSCREEN) != 0) {
         const int32_t action = AMotionEvent_getAction(event);
         const int32_t actionCode = action & AMOTION_EVENT_ACTION_MASK;
@@ -160,7 +162,7 @@ bool HandleMotionEvent(AInputEvent* event) {
                 if (s_touchPointer == -1) {
                     s_touchPointer = AMotionEvent_getPointerId(event, idx);
                     androidbridge::SetTouchMouse(
-                        AMotionEvent_getX(event, idx), AMotionEvent_getY(event, idx), true);
+                        AMotionEvent_getX(event, idx), AMotionEvent_getY(event, idx), false);
                     androidbridge::QueueTouchTap();
                 }
                 return true;
@@ -169,7 +171,7 @@ bool HandleMotionEvent(AInputEvent* event) {
                 for (int32_t i = 0; i < AMotionEvent_getPointerCount(event); ++i) {
                     if (AMotionEvent_getPointerId(event, i) == s_touchPointer) {
                         androidbridge::SetTouchMouse(
-                            AMotionEvent_getX(event, i), AMotionEvent_getY(event, i), true);
+                            AMotionEvent_getX(event, i), AMotionEvent_getY(event, i), false);
                         break;
                     }
                 }
