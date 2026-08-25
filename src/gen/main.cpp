@@ -36,6 +36,7 @@
 #endif
 
 #include "extra/version.h"
+#include "extra/touchhud.h"
 
 #include <vector>
 #include <algorithm>
@@ -376,6 +377,11 @@ static int RechanMain(int argc, char** argv) {
 
         jcsUpdateAmbience();
         jcsUpdateDialogCD();
+
+#if defined(RC_PLATFORM_ANDROID)
+        // Publish gameplay context for the touch overlay (no-op elsewhere).
+        touchhud::PublishFrame();
+#endif
 
         g_time->WaitForFrameEnd(frameStart);
 

@@ -52,4 +52,10 @@ struct PadSnapshot {
 
 PadSnapshot LoadPadSnapshot();
 
+// --- Touch HUD context (game thread -> UI thread) ---
+// Published by the game loop each frame; the Java overlay polls it to decide
+// which on-screen controls to show. Values match touchhud::HudContext.
+void SetHudContext(uint32_t context);
+uint32_t LoadHudContext();
+
 } // namespace androidbridge

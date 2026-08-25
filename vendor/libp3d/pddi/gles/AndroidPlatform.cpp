@@ -14,6 +14,7 @@ std::atomic<bool> g_exitRequested{false};
 std::atomic<uint32_t> g_heldButtons{0};
 std::atomic<float> g_axes[GamepadAxis::COUNT] = {};
 std::atomic<bool> g_padConnected{false};
+std::atomic<uint32_t> g_hudContext{0};
 } // namespace
 
 void SetNativeWindow(NativeWindowHandle window) {
@@ -74,6 +75,14 @@ PadSnapshot LoadPadSnapshot() {
     }
     snap.connected = g_padConnected.load(std::memory_order_relaxed);
     return snap;
+}
+
+void SetHudContext(uint32_t context) {
+    g_hudContext.store(context, std::memory_order_relaxed);
+}
+
+uint32_t LoadHudContext() {
+    return g_hudContext.load(std::memory_order_relaxed);
 }
 
 static_assert(GamepadButton::COUNT <= 32, "buttons fit in u32 bitmask");
