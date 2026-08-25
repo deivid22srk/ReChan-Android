@@ -151,11 +151,12 @@ bool HandleMotionEvent(AInputEvent* event) {
     // left-click) and queue taps for game-loop decisions (title screen).
     if ((source & AINPUT_SOURCE_TOUCHSCREEN) != 0) {
         const int32_t action = AMotionEvent_getAction(event);
-        switch (action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) {
+        const int32_t actionCode = action & AMOTION_EVENT_ACTION_MASK;
+        const int32_t idx = (action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK)
+                                >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
+        switch (actionCode) {
             case AMOTION_EVENT_ACTION_DOWN:
             case AMOTION_EVENT_ACTION_POINTER_DOWN: {
-                const int32_t idx = (action >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT)
-                                        & 0xff;
                 if (s_touchPointer == -1) {
                     s_touchPointer = AMotionEvent_getPointerId(event, idx);
                     androidbridge::SetTouchMouse(
@@ -177,19 +178,16 @@ bool HandleMotionEvent(AInputEvent* event) {
             case AMOTION_EVENT_ACTION_UP:
             case AMOTION_EVENT_ACTION_POINTER_UP:
             case AMOTION_EVENT_ACTION_CANCEL: {
-                const int32_t idx = (action >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT)
-                                        & 0xff;
                 const bool primaryLifted =
-                    (action == AMOTION_EVENT_ACTION_UP) ||
-                    (action == AMOTION_EVENT_ACTION_CANCEL) ||
+                    (actionCode == AMOTION_EVENT_ACTION_UP) ||
+                    (actionCode == AMOTION_EVENT_ACTION_CANCEL) ||
                     (AMotionEvent_getPointerId(event, idx) == s_touchPointer);
                 if (primaryLifted && s_touchPointer != -1) {
                     // A lift at the (possibly moved) position is a tap: publish
                     // it for direct menu hit-testing on the game thread.
-                    const int32_t nidx = (action == AMOTION_EVENT_ACTION_UP) ? 0 : idx;
-                    if (action != AMOTION_EVENT_ACTION_CANCEL) {
+                    if (actionCode != AMOTION_EVENT_ACTION_CANCEL) {
                         androidbridge::QueueTouchTapPos(
-                            AMotionEvent_getX(event, nidx), AMotionEvent_getY(event, nidx));
+                            AMotionEvent_getX(event, idx), AMotionEvent_getY(event, idx));
                     }
                     s_touchPointer = -1;
                     androidbridge::SetTouchMouse(0.0f, 0.0f, false);
