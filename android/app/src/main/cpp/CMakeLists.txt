@@ -17,6 +17,10 @@ target_include_directories(native_app_glue INTERFACE
     "${ANDROID_NDK}/sources/android/native_app_glue")
 target_compile_options(native_app_glue PRIVATE -w)
 target_compile_definitions(native_app_glue PRIVATE NDEBUG)
+# Nothing in the game references glue symbols, so without this flag the
+# linker drops the object and ANativeActivity_onCreate goes missing at load
+# time (UnsatisfiedLinkError on NativeActivity startup).
+target_link_options(native_app_glue INTERFACE "-u ANativeActivity_onCreate")
 
 # --- libp3d (p3d core + GLES pddi backend + ImGui core) ---------------------
 
