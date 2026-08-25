@@ -2127,6 +2127,23 @@ s32 feCustomMenuMgr::Invoke() {
             }
         }
 
+#if defined(RC_PLATFORM_ANDROID)
+        // Touch->mouse diagnostics for the asset/menu screens: one line per
+        // click or per second so the hit-test geometry can be verified.
+        {
+            static s32 s_diagCounter = 0;
+            const bool clicked = leftClick || (++s_diagCounter % 60 == 0);
+            if (clicked) {
+                LOG("[MenuMouse] page=%d sx=%.0f sy=%.0f psx=(%.1f,%.1f) panel=(%d,%d)+%dx%d"
+                    " frameH=%d cursor=%d leftClick=%d",
+                    static_cast<s32>(m_currPage), sx, sy, psxX, psxY,
+                    panelX, panelY, page->frameW, page->frameH,
+                    m_currPage == MenuPage_AssetMissing ? (s32)page->frameH : 0,
+                    m_cursor, leftClick ? 1 : 0);
+            }
+        }
+#endif
+
         if (leftClick) {
             PlaySound(FE_SND_MENU_5);
             Confirm();
