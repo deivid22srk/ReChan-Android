@@ -155,9 +155,12 @@ bool HandleMotionEvent(AInputEvent* event) {
     const float ry = ClampAxis(AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_RZ, 0));
 
     androidbridge::PostGamepadAxis(GamepadAxis::LeftX, lx);
-    androidbridge::PostGamepadAxis(GamepadAxis::LeftY, -ly); // Y up-positive
+    // Android AXIS_Y already matches the GLFW gamepad convention
+    // (-1 = up, +1 = down), so no sign flip here (unlike libnx, which is
+    // up-positive and needs negating on the Switch branch).
+    androidbridge::PostGamepadAxis(GamepadAxis::LeftY, ly);
     androidbridge::PostGamepadAxis(GamepadAxis::RightX, rx);
-    androidbridge::PostGamepadAxis(GamepadAxis::RightY, -ry);
+    androidbridge::PostGamepadAxis(GamepadAxis::RightY, ry);
 
     float ltrig = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_LTRIGGER, 0);
     float rtrig = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_RTRIGGER, 0);
