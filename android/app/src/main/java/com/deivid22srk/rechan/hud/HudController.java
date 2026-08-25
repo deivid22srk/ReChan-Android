@@ -8,8 +8,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.view.InputDevice;
-import android.view.MotionEvent;
-import android.view.View;
 import android.view.WindowInsets;
 
 import org.json.JSONException;
@@ -37,6 +35,7 @@ public class HudController implements InputManager.InputDeviceListener {
     private TouchHudView hudView;
     private InputManager inputManager;
     private boolean gamepadConnected;
+    private boolean panelAttached;
     private boolean running;
     private int lastContext = -1;
 
@@ -44,21 +43,21 @@ public class HudController implements InputManager.InputDeviceListener {
         this.activity = activity;
     }
 
-    /** Attach the overlay to the activity and start listening. */
+    /** Attach the overlay to the activity and start listening.
+     *
+     * NativeActivity claims the window's input pipeline via
+     * takeInputQueue(), so views inside the activity NEVER receive touch
+     * events. The HUD therefore lives in its own panel window
+     * (TYPE_APPLICATION_PANEL, FLAG_NOT_FOCUSABLE): it gets an independent
+     * input channel for touches while gamepad keys keep flowing to the game
+     * window untouched. */
     public void attach() {
         hudView = new TouchHudView(activity, this);
-        hudView.setVisibility(View.GONE); // shown once state settles
-        activity.addContentView(
-                hudView,
-                new android.view.ViewGroup.LayoutParams(
-                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                        android.view.ViewGroup.LayoutParams.MATCH_PARENT));
 
-        // Safe areas (cutout + system bars): recompute default layout bounds.
-        // WindowInsets.Type / getInsets() require API 30; older devices run
-        // without safe-area adjustment.
+        // Safe areas (cutout + system bars) come from the activity's decor
+        // view — panel windows may not receive insets dispatches.
         if (android.os.Build.VERSION.SDK_INT >= 30) {
-            hudView.setOnApplyWindowInsetsListener((v, insets) -> {
+            activity.getWindow().getDecorView().setOnApplyWindowInsetsListener((v, insets) -> {
                 android.graphics.Insets bars = insets.getInsets(
                         WindowInsets.Type.systemBars()
                                 | WindowInsets.Type.displayCutout());
@@ -70,11 +69,37 @@ public class HudController implements InputManager.InputDeviceListener {
         inputManager = (InputManager) activity.getSystemService(Context.INPUT_SERVICE);
         inputManager.registerInputDeviceListener(this, handler);
         gamepadConnected = anyRealGamepadConnected();
-        applyGamepadVisibility(false);
 
         running = true;
         handler.postDelayed(contextPoller, CONTEXT_POLL_MS);
         log("attached; gamepadConnected=" + gamepadConnected);
+
+        // The window token only exists once the decor view is attached.
+        activity.getWindow().getDecorView().post(this::attachPanelWindow);
+    }
+
+    private void attachPanelWindow() {
+        if (hudView == null || !running) return;
+        try {
+            android.view.WindowManager wm =
+                    (android.view.WindowManager) activity.getSystemService(Context.WINDOW_SERVICE);
+            android.view.WindowManager.LayoutParams params =
+                    new android.view.WindowManager.LayoutParams(
+                            android.view.WindowManager.LayoutParams.MATCH_PARENT,
+                            android.view.WindowManager.LayoutParams.MATCH_PARENT,
+                            android.view.WindowManager.LayoutParams.TYPE_APPLICATION_PANEL,
+                            android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                                    | android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+                                    | android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                                    | android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                            android.graphics.PixelFormat.TRANSLUCENT);
+            params.token = activity.getWindow().getDecorView().getWindowToken();
+            panelAttached = true;
+            wm.addView(hudView, params);
+            applyGamepadVisibility(false);
+        } catch (Exception e) {
+            log("panel attach failed: " + e);
+        }
     }
 
     public void detach() {
@@ -85,6 +110,16 @@ public class HudController implements InputManager.InputDeviceListener {
         }
         if (hudView != null) {
             hudView.releaseAll();
+            if (panelAttached) {
+                try {
+                    android.view.WindowManager wm =
+                            (android.view.WindowManager) activity.getSystemService(Context.WINDOW_SERVICE);
+                    wm.removeView(hudView);
+                } catch (Exception ignored) {
+                }
+                panelAttached = false;
+            }
+            hudView = null;
         }
     }
 

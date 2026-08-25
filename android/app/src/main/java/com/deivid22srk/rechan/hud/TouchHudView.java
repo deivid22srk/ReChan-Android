@@ -153,7 +153,9 @@ public class TouchHudView extends View {
             animate().alpha(0f).setDuration(180)
                     .withEndAction(() -> {
                         if (!visible) {
-                            setVisibility(GONE);
+                            // INVISIBLE keeps the panel window sized; hidden
+                            // views receive no touch dispatch anyway.
+                            setVisibility(INVISIBLE);
                             exitEditMode();
                         }
                     }).start();
