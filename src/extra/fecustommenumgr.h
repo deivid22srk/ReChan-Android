@@ -404,6 +404,7 @@ public:
     bool IsPopupActive() const { return m_activePopup != PopupKind_None; }
     PopupKind GetActivePopup() const { return m_activePopup; }
     bool IsActive() const { return m_active; }
+    bool IsMouseActive() const { return m_mouseInputActive; }
     MenuPage GetCurrentPage() const { return m_currPage; }
 
     void RenderAutosaveSpinner(s32 centerX, s32 centerY, f32 alpha01 = 1.0f) const;

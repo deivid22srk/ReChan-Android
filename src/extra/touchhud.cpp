@@ -87,6 +87,21 @@ void PublishFrame() {
     s_context = ComputeContext();
     androidbridge::SetHudContext(static_cast<u32>(s_context));
 
+    // Touch diagnostics (throttled): confirm the touch->mouse chain end to end.
+    static s32 s_diagCounter = 0;
+    if ((s_diagCounter++ & 0x3F) == 0) {
+        float tx = 0.0f, ty = 0.0f;
+        const bool touchDown = androidbridge::GetTouchMouse(&tx, &ty);
+        const bool menuActive = g_feCustomMenuMgr && g_feCustomMenuMgr->IsActive();
+        const bool mouseActive = g_feCustomMenuMgr ? g_feCustomMenuMgr->IsMouseActive() : false;
+        LOG("[TouchDiag] down=%d pos=(%.0f,%.0f) menuActive=%d mouseActive=%d"
+            " hadGp=%d hadKb=%d ctx=%u",
+            touchDown ? 1 : 0, tx, ty, menuActive ? 1 : 0, mouseActive ? 1 : 0,
+            (g_actionInput && g_actionInput->HadGamepadInputThisFrame()) ? 1 : 0,
+            (g_actionInput && g_actionInput->HadKeyboardInputThisFrame()) ? 1 : 0,
+            static_cast<u32>(s_context));
+    }
+
     // Title screen "press any button": a tap anywhere becomes a Start press
     // (the custom menu is inactive during that phase, so taps aren't menu
     // clicks yet). Two frames so the pad edge is sampled reliably.
