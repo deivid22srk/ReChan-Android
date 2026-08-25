@@ -7,18 +7,16 @@ import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 
-import com.deivid22srk.rechan.hud.HudController;
-
 /**
  * NativeActivity hosting the ReChan GLES3 engine. Immersive fullscreen with
- * cutout support; all input flows through the native input queue. A
- * contextual touch overlay (HudController) is attached on top: it hides
- * itself while a physical gamepad is connected and adapts its controls to
- * the gameplay context published by the engine.
+ * cutout support; all input flows through the native input queue.
+ *
+ * The Java HUD overlay (HudController) is disabled for now — the engine
+ * handles touch natively for menus (mouse emulation via touchscreen events
+ * in AndroidInput.cpp). A future re-enable can restore the gameplay touch
+ * controls.
  */
 public class GameActivity extends NativeActivity {
-
-    private HudController hudController;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -27,17 +25,9 @@ public class GameActivity extends NativeActivity {
             getWindow().getAttributes().layoutInDisplayCutoutMode =
                     android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         }
-        hudController = new HudController(this);
-        hudController.attach();
-    }
-
-    @Override
-    protected void onDestroy() {
-        if (hudController != null) {
-            hudController.detach();
-            hudController = null;
-        }
-        super.onDestroy();
+        // HUD overlay disabled — see HudController / TouchHudView for the
+        // gameplay touch overlay (joystick + buttons). Native touch→mouse
+        // in AndroidInput.cpp handles menus.
     }
 
     @Override
