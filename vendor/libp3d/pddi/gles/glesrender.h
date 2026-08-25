@@ -199,8 +199,10 @@ private:
     void* eglContext_ = nullptr; // EGLContext
     void* eglSurface_ = nullptr; // EGLSurface
 #if defined(RC_PLATFORM_ANDROID)
-    void* config_ = nullptr;     // EGLConfig (kept for surface recreation on resume)
+    void* config_ = nullptr;          // EGLConfig (kept for surface recreation on resume)
     bool vsyncEnabled_ = true;
+    void* eglSurfaceWindow_ = nullptr; // ANativeWindow the surface was created from
+    unsigned long long surfaceGen_ = 0; // androidbridge generation at creation
 #endif
     int width = 1280;
     int height = 720;

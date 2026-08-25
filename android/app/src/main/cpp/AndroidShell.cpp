@@ -25,6 +25,7 @@ namespace {
 android_app* g_app = nullptr;
 pthread_t g_gameThread = {};
 bool g_gameThreadStarted = false;
+ANativeWindow* g_acquiredWindow = nullptr;
 
 struct AssetTask {
     std::string assetPath; // path inside the APK assets/
@@ -127,11 +128,18 @@ void HandleCommand(android_app* app, int32_t cmd) {
         case APP_CMD_INIT_WINDOW:
             if (app->window) {
                 ANativeWindow_acquire(app->window);
+                g_acquiredWindow = app->window;
                 androidbridge::SetNativeWindow(app->window);
             }
             break;
         case APP_CMD_TERM_WINDOW:
             androidbridge::SetNativeWindow(nullptr);
+            // The EGL surface keeps its own strong reference to the window, so
+            // dropping ours here is safe; it only guards the handoff window.
+            if (g_acquiredWindow) {
+                ANativeWindow_release(g_acquiredWindow);
+                g_acquiredWindow = nullptr;
+            }
             break;
         case APP_CMD_PAUSE:
             // Backgrounded: silence the output device (the game loop parks on
@@ -143,6 +151,10 @@ void HandleCommand(android_app* app, int32_t cmd) {
             break;
         case APP_CMD_DESTROY:
             androidbridge::RequestExit();
+            if (g_acquiredWindow) {
+                ANativeWindow_release(g_acquiredWindow);
+                g_acquiredWindow = nullptr;
+            }
             break;
         default:
             break;
@@ -174,8 +186,11 @@ void* GameThreadFunc(void*) {
     char* argv[] = {argv0, nullptr};
     GameMain(1, argv);
 
-    // The engine loop ended (in-game quit or exit request): close the app.
-    ANativeActivity_finish(g_app->activity);
+    // The engine loop ended (in-game quit or exit request): close the app,
+    // unless the system already started tearing it down.
+    if (!g_app->destroyRequested) {
+        ANativeActivity_finish(g_app->activity);
+    }
     return nullptr;
 }
 

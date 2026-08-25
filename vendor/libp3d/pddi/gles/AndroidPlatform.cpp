@@ -9,6 +9,7 @@ namespace androidbridge {
 namespace {
 std::atomic<NativeWindowHandle> g_currentWindow{nullptr};
 std::atomic<NativeWindowHandle> g_pendingWindow{nullptr};
+std::atomic<uint64_t> g_windowGeneration{0};
 std::atomic<bool> g_exitRequested{false};
 std::atomic<uint32_t> g_heldButtons{0};
 std::atomic<float> g_axes[GamepadAxis::COUNT] = {};
@@ -21,8 +22,12 @@ void SetNativeWindow(NativeWindowHandle window) {
         g_currentWindow.store(window, std::memory_order_release);
     }
     else {
+        // Clear BOTH: a stale pending handle would otherwise hand a dead
+        // window back to the display's resume path.
         g_currentWindow.store(nullptr, std::memory_order_release);
+        g_pendingWindow.store(nullptr, std::memory_order_release);
     }
+    g_windowGeneration.fetch_add(1, std::memory_order_release);
 }
 
 void RequestExit() { g_exitRequested.store(true, std::memory_order_release); }
@@ -33,6 +38,10 @@ NativeWindowHandle TakePendingWindow() {
 
 NativeWindowHandle PeekCurrentWindow() {
     return g_currentWindow.load(std::memory_order_acquire);
+}
+
+uint64_t WindowGeneration() {
+    return g_windowGeneration.load(std::memory_order_acquire);
 }
 
 bool ExitRequested() { return g_exitRequested.load(std::memory_order_acquire); }

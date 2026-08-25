@@ -1120,7 +1120,9 @@ bool glesDisplay::InitDisplay(const pddiDisplayInit& init) {
     if (numConfigs == 0) {
         std::snprintf(s_glesInitError, sizeof(s_glesInitError),
                       "eglChooseConfig: 0 configs (0x%04x)", eglGetError());
+#if !defined(RC_PLATFORM_ANDROID)
         eglTerminate(dpy);
+#endif
         return false;
     }
 #if defined(RC_PLATFORM_ANDROID)
@@ -1134,7 +1136,9 @@ bool glesDisplay::InitDisplay(const pddiDisplayInit& init) {
     if (!surface) {
         std::snprintf(s_glesInitError, sizeof(s_glesInitError),
                       "eglCreateWindowSurface failed (0x%04x)", eglGetError());
+#if !defined(RC_PLATFORM_ANDROID)
         eglTerminate(dpy);
+#endif
         return false;
     }
 
@@ -1147,7 +1151,9 @@ bool glesDisplay::InitDisplay(const pddiDisplayInit& init) {
         std::snprintf(s_glesInitError, sizeof(s_glesInitError),
                       "eglCreateContext failed (0x%04x)", eglGetError());
         eglDestroySurface(dpy, surface);
+#if !defined(RC_PLATFORM_ANDROID)
         eglTerminate(dpy);
+#endif
         return false;
     }
 
@@ -1156,7 +1162,9 @@ bool glesDisplay::InitDisplay(const pddiDisplayInit& init) {
                       "eglMakeCurrent failed (0x%04x)", eglGetError());
         eglDestroyContext(dpy, context);
         eglDestroySurface(dpy, surface);
+#if !defined(RC_PLATFORM_ANDROID)
         eglTerminate(dpy);
+#endif
         return false;
     }
     eglSwapInterval(dpy, init.vsync ? 1 : 0);
@@ -1168,6 +1176,11 @@ bool glesDisplay::InitDisplay(const pddiDisplayInit& init) {
     // Render at the real surface size; HOR+ aspect handling adapts downstream.
     width = ANativeWindow_getWidth(static_cast<ANativeWindow*>(nativeWindow));
     height = ANativeWindow_getHeight(static_cast<ANativeWindow*>(nativeWindow));
+
+    // Record which window/generation this surface belongs to so PollEvents can
+    // detect stale surfaces after pause/resume.
+    surfaceGen_ = androidbridge::WindowGeneration();
+    eglSurfaceWindow_ = nativeWindow;
 #endif
 
     LogGles("glesDisplay: init %dx%d vsync=%d", width, height, init.vsync ? 1 : 0);
@@ -1195,48 +1208,56 @@ void glesDisplay::PollEvents() {
 #else
 // Android: drive surface lifetime transitions here so all EGL calls stay on
 // the game thread. While the app is paused (no surface) this parks the game
-// loop until the shell publishes a new window or requests exit.
+// loop until the shell publishes a new window or requests exit. Surfaces are
+// tagged with the window generation they were created from, so a window that
+// changed behind our back is always torn down and rebuilt.
 void glesDisplay::PollEvents() {
     if (androidbridge::ExitRequested()) {
         shouldClose = true;
         return;
     }
 
-    const bool haveSurface = eglSurface_ != nullptr;
+    if (eglSurface_ && androidbridge::WindowGeneration() != surfaceGen_) {
+        // The window was replaced or removed since this surface was made.
+        EGLDisplay dpy = static_cast<EGLDisplay>(eglDisplay_);
+        eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        eglDestroySurface(dpy, static_cast<EGLSurface>(eglSurface_));
+        eglSurface_ = nullptr;
+        eglSurfaceWindow_ = nullptr;
+        LogGles("glesDisplay: stale surface released (gen %llu)", (unsigned long long)surfaceGen_);
+    }
 
-    if (!haveSurface || !androidbridge::PeekCurrentWindow()) {
-        // Paused (or window went away): tear the surface down once and wait.
-        if (haveSurface) {
-            EGLDisplay dpy = static_cast<EGLDisplay>(eglDisplay_);
-            eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-            eglDestroySurface(dpy, static_cast<EGLSurface>(eglSurface_));
-            eglSurface_ = nullptr;
-            LogGles("glesDisplay: surface released (paused)");
-        }
-
+    if (!eglSurface_) {
+        // Parked (paused): wait for the shell to publish a window.
         while (!androidbridge::ExitRequested()) {
             void* pending = androidbridge::TakePendingWindow();
-            if (!pending && androidbridge::PeekCurrentWindow()) {
-                pending = androidbridge::PeekCurrentWindow();
+            if (!pending) {
+                usleep(16000); // ~60Hz idle while backgrounded
+                continue;
             }
-            if (pending) {
-                EGLDisplay dpy = static_cast<EGLDisplay>(eglDisplay_);
-                EGLSurface surface =
-                    eglCreateWindowSurface(dpy, config_, static_cast<EGLNativeWindowType>(pending), nullptr);
-                if (surface &&
-                    eglMakeCurrent(dpy, surface, surface, static_cast<EGLContext>(eglContext_))) {
-                    eglSwapInterval(dpy, vsyncEnabled_ ? 1 : 0);
-                    eglSurface_ = surface;
-                    width = ANativeWindow_getWidth(static_cast<ANativeWindow*>(pending));
-                    height = ANativeWindow_getHeight(static_cast<ANativeWindow*>(pending));
-                    LogGles("glesDisplay: surface resumed %dx%d", width, height);
-                }
-                else {
-                    LogGles("glesDisplay: resume failed (0x%04x)", eglGetError());
-                }
-                break;
+
+            const unsigned long long genAtTake = androidbridge::WindowGeneration();
+            EGLDisplay dpy = static_cast<EGLDisplay>(eglDisplay_);
+            EGLSurface surface = eglCreateWindowSurface(
+                dpy, config_, static_cast<EGLNativeWindowType>(pending), nullptr);
+            if (surface &&
+                eglMakeCurrent(dpy, surface, surface, static_cast<EGLContext>(eglContext_))) {
+                eglSwapInterval(dpy, vsyncEnabled_ ? 1 : 0);
+                eglSurface_ = surface;
+                eglSurfaceWindow_ = pending;
+                surfaceGen_ = genAtTake;
+                width = ANativeWindow_getWidth(static_cast<ANativeWindow*>(pending));
+                height = ANativeWindow_getHeight(static_cast<ANativeWindow*>(pending));
+                LogGles("glesDisplay: surface resumed %dx%d (gen %llu)",
+                        width, height, genAtTake);
             }
-            usleep(16000); // ~60Hz idle while backgrounded
+            else {
+                LogGles("glesDisplay: resume failed (0x%04x)", eglGetError());
+                // Republish so the next PollEvents retries instead of parking
+                // forever with the window already consumed.
+                androidbridge::SetNativeWindow(pending);
+            }
+            break;
         }
     }
 

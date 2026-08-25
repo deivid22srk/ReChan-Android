@@ -27,6 +27,11 @@ NativeWindowHandle TakePendingWindow();
 // Game thread: current published window (may be null between pause/resume).
 NativeWindowHandle PeekCurrentWindow();
 
+// Monotonic counter bumped on every window transition (publish or clear).
+// The display compares it against the generation its EGL surface was created
+// from to detect stale surfaces after fast TERM->INIT sequences.
+uint64_t WindowGeneration();
+
 // Game thread: true once exit has been requested.
 bool ExitRequested();
 
