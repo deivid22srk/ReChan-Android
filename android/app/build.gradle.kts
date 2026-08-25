@@ -5,23 +5,18 @@ plugins {
 // ReChan-authored support files (fonts/textures/text) live at the repo root in
 // res/pc. They are synced into the APK assets and extracted on-device on first
 // launch; pc_manifest.txt lists every file for the native extractor.
-val gameAssetsDir = layout.buildDirectory.dir("generated/gameAssets")
-
-val syncGameSupportAssets = tasks.register("syncGameSupportAssets") {
+val syncGameSupportAssets = tasks.register<Sync>("syncGameSupportAssets") {
     val srcDir = rootProject.file("../res/pc")
-    val outDir = gameAssetsDir.get().asFile
-    inputs.dir(srcDir)
-    outputs.dir(outDir)
+    from(srcDir) {
+        into("pc")
+    }
+    into(layout.buildDirectory.dir("generated/gameAssets"))
     doLast {
-        copy {
-            from(srcDir)
-            into(File(outDir, "pc"))
-        }
         val paths = sortedSetOf<String>()
         srcDir.walkTopDown().filter { it.isFile }.forEach { f ->
             paths.add("pc/" + f.relativeTo(srcDir).invariantSeparatorsPath)
         }
-        File(outDir, "pc_manifest.txt").writeText(paths.joinToString("\n") + "\n")
+        File(destinationDir, "pc_manifest.txt").writeText(paths.joinToString("\n") + "\n")
     }
 }
 
@@ -75,7 +70,9 @@ android {
 
     sourceSets {
         getByName("main") {
-            assets.srcDir(gameAssetsDir)
+            // Passing the task provider wires the dependency into every asset
+            // consumer (mergeAssets, lint model, etc.) automatically.
+            assets.srcDir(syncGameSupportAssets.map { it.destinationDir })
         }
     }
 
@@ -84,10 +81,6 @@ android {
             useLegacyPackaging = false
         }
     }
-}
-
-tasks.matching { it.name.startsWith("merge") && it.name.contains("Assets") }.configureEach {
-    dependsOn(syncGameSupportAssets)
 }
 
 tasks.matching { it.name.startsWith("generateJsonConfig") ||
