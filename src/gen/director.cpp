@@ -1883,6 +1883,49 @@ void Director::Process() {
                 ProcessDoorFunc();
                 break;
 
+            case DirectorOpcode::AttachThingToDoor:
+            {
+                // PSX top-level 0x3E (real WORLDPTS door NIS data): attach the
+                // humanoid named by the hash operand to the door that started
+                // this code snip (g_codeSnipThing), walking it into the doorway
+                // via Behaviour::NisControl. Same body as DoorFunc's
+                // AttachToDoor sub-command, but the door comes from the code
+                // snip thing instead of a previous SetDoor token — the real
+                // scripts never issue SetDoor.
+                const u32 thingRef = static_cast<u32>(scriptPtr[1]);
+                scriptPtr += 2;
+
+                Humanoid* humanoid = FindHumanoidByScriptRef(thingRef);
+                Door* door = dynamic_cast<Door*>(g_codeSnipThing);
+                if (humanoid && door && humanoid->behaviour) {
+                    LOG("[Director] AttachThingToDoor humanoid=%s door=%s",
+                        humanoid->GetName() ? humanoid->GetName() : "null",
+                        door->GetName() ? door->GetName() : "null");
+                    LVector localCenter = {};
+                    localCenter.x = ((s32)door->collBox.minX + (s32)door->collBox.maxX) / 2;
+                    localCenter.y = ((s32)door->collBox.minY + (s32)door->collBox.maxY) / 2;
+                    localCenter.z = ((s32)door->collBox.minZ + (s32)door->collBox.maxZ) / 2;
+
+                    s32 sinY = rmSin16(door->orientation.y);
+                    s32 cosY = rmSin16(door->orientation.y + 0x4000);
+
+                    LVector attachPos = {};
+                    attachPos.x = door->pos.x + (s32)(((s64)cosY * localCenter.x) >> 16) + (s32)(((s64)sinY * localCenter.z) >> 16);
+                    attachPos.y = door->pos.y;
+                    attachPos.z = door->pos.z + (s32)((-(s64)sinY * localCenter.x) >> 16) + (s32)(((s64)cosY * localCenter.z) >> 16);
+
+                    humanoid->behaviour->destPoint = attachPos;
+                    humanoid->behaviour->handlerThisOffset = 0;
+                    humanoid->behaviour->handlerDispatch = -1;
+                    humanoid->behaviour->handler = Behaviour::NisControl;
+                }
+                else {
+                    LOG("[Director] AttachThingToDoor skipped: humanoid=%p door=%p",
+                        static_cast<const void*>(humanoid), static_cast<const void*>(door));
+                }
+                break;
+            }
+
             case DirectorOpcode::FacePointAndNisControl:
                 // PSX: face player toward NIS point, write Behaviour::destPoint, set NisControl behaviour
                 scriptPtr += 1;
