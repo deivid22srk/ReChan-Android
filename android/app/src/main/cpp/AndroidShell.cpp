@@ -20,6 +20,13 @@
 extern int GameMain(int argc, char** argv);
 bool RechanAndroidHandleInputEvent(AInputEvent* event);
 
+// Belt-and-suspenders anchor: referencing glue's entry symbol here guarantees
+// the linker pulls native_app_glue's object out of the static archive (the
+// -u link option does the same; this survives any flag reshuffling).
+extern "C" void ANativeActivity_onCreate(ANativeActivity*, void*, std::size_t);
+[[maybe_unused]] static const void* const kGlueAnchor =
+    reinterpret_cast<const void*>(&ANativeActivity_onCreate);
+
 namespace {
 
 android_app* g_app = nullptr;
