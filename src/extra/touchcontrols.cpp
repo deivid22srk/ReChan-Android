@@ -130,7 +130,9 @@ static bool s_visible = false;
 static float s_alpha = 0.0f;
 static bool s_btnDown[kControlCount] = {};
 static int32_t s_btnPointer[kControlCount]; // pointer id per button, -1 = none
+static uint32_t s_btnSeq[kControlCount];    // touch seq of the grabbing finger
 static int32_t s_joyPointer = -1;           // pointer id dragging joystick
+static uint32_t s_joySeq = 0;               // touch seq of the dragging finger
 static float s_knobX = 0.0f;
 static float s_knobY = 0.0f;
 
@@ -151,6 +153,7 @@ static void ReleaseJoystick() {
     androidbridge::PostGamepadAxis(GamepadAxis::LeftX, 0.0f);
     androidbridge::PostGamepadAxis(GamepadAxis::LeftY, 0.0f);
     s_joyPointer = -1;
+    s_joySeq = 0;
     s_knobX = s_knobY = 0.0f;
 }
 
@@ -160,6 +163,7 @@ static void ResetAll() {
             androidbridge::PostGamepadButton(kControls[i].buttonId, false);
             s_btnDown[i] = false;
             s_btnPointer[i] = -1;
+            s_btnSeq[i] = 0;
         }
     }
     if (s_joyPointer >= 0) {
@@ -222,11 +226,14 @@ void Update() {
     androidbridge::TouchPoint pts[androidbridge::kMaxTouchPoints];
     const int32_t ptCount = androidbridge::LoadTouchPoints(pts, androidbridge::kMaxTouchPoints);
 
-    // Stable identity lookup: find a touch point by pointer id.
-    auto findById = [&pts, ptCount](int32_t id) -> const androidbridge::TouchPoint* {
+    // Stable identity lookup: find a touch point by (pointer id, seq).
+    // The seq changes every time a slot is re-acquired by a new finger, so a
+    // recycled pointer id can never keep holding a control it never grabbed.
+    auto findByTouch = [&pts, ptCount](int32_t id, uint32_t seq)
+        -> const androidbridge::TouchPoint* {
         if (id < 0) return nullptr;
         for (int32_t i = 0; i < ptCount; ++i) {
-            if (pts[i].active && pts[i].id == id) return &pts[i];
+            if (pts[i].active && pts[i].id == id && pts[i].seq == seq) return &pts[i];
         }
         return nullptr;
     };
@@ -234,26 +241,39 @@ void Update() {
     // 1) Release any button whose pointer is gone.
     for (int32_t ci = 0; ci < kControlCount; ++ci) {
         if (kControls[ci].buttonId < 0 || !s_btnDown[ci]) continue;
-        if (!findById(s_btnPointer[ci])) {
+        if (!findByTouch(s_btnPointer[ci], s_btnSeq[ci])) {
             s_btnDown[ci] = false;
             s_btnPointer[ci] = -1;
+            s_btnSeq[ci] = 0;
             androidbridge::PostGamepadButton(kControls[ci].buttonId, false);
         }
     }
 
     // Release the joystick if its pointer is gone.
-    if (s_joyPointer >= 0 && !findById(s_joyPointer)) {
+    if (s_joyPointer >= 0 && !findByTouch(s_joyPointer, s_joySeq)) {
         ReleaseJoystick();
     }
 
     // 2) Assign/update active pointers (matched by id, never by index).
+    // Duplicated ids in the slot array can no longer occur (the bridge now
+    // indexes real slots), but a duplicate would still wedge two controls to
+    // one finger — skip any id already seen this frame.
     bool anyActive = false;
     for (int32_t pi = 0; pi < ptCount; ++pi) {
         if (!pts[pi].active) continue;
         const int32_t pid = pts[pi].id;
 
+        bool seenEarlier = false;
+        for (int32_t pj = 0; pj < pi; ++pj) {
+            if (pts[pj].active && pts[pj].id == pid) {
+                seenEarlier = true;
+                break;
+            }
+        }
+        if (seenEarlier) continue;
+
         // Joystick follow
-        if (s_joyPointer == pid) {
+        if (s_joyPointer == pid && s_joySeq == pts[pi].seq) {
             const float dx = pts[pi].x - s_cx[kJoyIdx];
             const float dy = pts[pi].y - s_cy[kJoyIdx];
             const float r = s_joyBaseR;
@@ -271,7 +291,8 @@ void Update() {
         // Pointer already holding a button?
         bool handled = false;
         for (int32_t ci = 0; ci < kControlCount; ++ci) {
-            if (kControls[ci].buttonId >= 0 && s_btnDown[ci] && s_btnPointer[ci] == pid) {
+            if (kControls[ci].buttonId >= 0 && s_btnDown[ci]
+                && s_btnPointer[ci] == pid && s_btnSeq[ci] == pts[pi].seq) {
                 handled = true;
                 anyActive = true;
                 break;
@@ -286,11 +307,13 @@ void Update() {
         if (kControls[hit].buttonId >= 0) {
             s_btnDown[hit] = true;
             s_btnPointer[hit] = pid;
+            s_btnSeq[hit] = pts[pi].seq;
             androidbridge::PostGamepadButton(kControls[hit].buttonId, true);
             anyActive = true;
         }
         else if (hit == kJoyIdx && s_joyPointer == -1) {
             s_joyPointer = pid;
+            s_joySeq = pts[pi].seq;
             const float dx = pts[pi].x - s_cx[kJoyIdx];
             const float dy = pts[pi].y - s_cy[kJoyIdx];
             s_knobX = dx / s_joyBaseR;
@@ -413,11 +436,13 @@ void Reset() {
 static bool s_movieSkippable = false; // PlayMovie(skippable) gates everything
 static bool s_skipHeld = false;       // Start posted down, waiting for release
 static int32_t s_skipPointer = -1;    // pointer that already triggered a skip
+static uint32_t s_skipSeq = 0;        // seq of that touch (guards id recycling)
 
-static void DoSkip(int32_t pointerId) {
+static void DoSkip(int32_t pointerId, uint32_t seq) {
     if (s_skipHeld) return; // one press per touch
     s_skipHeld = true;
     s_skipPointer = pointerId;
+    s_skipSeq = seq;
     androidbridge::PostGamepadConnected(true);
     androidbridge::PostGamepadButton(GamepadButton::Start, true);
 }
@@ -436,6 +461,7 @@ void EndMovieSkip() {
     }
     s_movieSkippable = false;
     s_skipPointer = -1;
+    s_skipSeq = 0;
 }
 
 void UpdateMovieSkip() {
@@ -450,7 +476,8 @@ void UpdateMovieSkip() {
     const float skipR = std::min(SCREEN_WIDTH, SCREEN_HEIGHT) * 0.055f;
 
     // A finger that already skipped stays ignored until it lifts, so holding
-    // the button through the rest of the movie doesn't re-trigger.
+    // the button through the rest of the movie doesn't re-trigger. The seq
+    // makes "lifts" reliable even if Android recycles the pointer id.
     bool skipPointerDown = false;
 
     for (int32_t i = 0; i < ptCount; ++i) {
@@ -460,17 +487,18 @@ void UpdateMovieSkip() {
         const float dy = pts[i].y - skipY;
         const bool inSkip = (dx * dx + dy * dy <= skipR * skipR * 2.0f);
 
-        if (inSkip && pts[i].id != s_skipPointer) {
-            DoSkip(pts[i].id);
+        if (inSkip && !(pts[i].id == s_skipPointer && pts[i].seq == s_skipSeq)) {
+            DoSkip(pts[i].id, pts[i].seq);
             return;
         }
-        if (pts[i].id == s_skipPointer) {
+        if (pts[i].id == s_skipPointer && pts[i].seq == s_skipSeq) {
             skipPointerDown = true;
         }
     }
 
     if (!skipPointerDown) {
         s_skipPointer = -1;
+        s_skipSeq = 0;
     }
 }
 

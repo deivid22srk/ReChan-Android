@@ -75,34 +75,29 @@ int HatToButtons(float hatX, float hatY) {
 // index is the first slot that was assigned (used for menu hover).
 int32_t s_touchPointer = -1;
 
-// Find a free slot in the androidbridge multi-touch array, or return the
-// slot that already holds the given pointer id.
-static int32_t FindTouchSlot(int32_t pointerId, bool create) {
-    androidbridge::TouchPoint points[androidbridge::kMaxTouchPoints];
-    const int32_t cnt = androidbridge::LoadTouchPoints(points, androidbridge::kMaxTouchPoints);
-    for (int32_t i = 0; i < cnt; ++i) {
-        if (points[i].id == pointerId) return i;
-    }
-    if (!create) return -1;
-    // First free slot
-    for (int32_t i = 0; i < androidbridge::kMaxTouchPoints; ++i) {
-        if (!points[i].active) return i;
-    }
-    return -1; // all slots full
-}
-
-static void UpdateMouseFromPrimary() {
+static void AdoptPrimaryFromSlots() {
+    // Primary finger went away — either adopt another live finger or reset
+    // the emulated mouse. Runs on the input thread only.
     androidbridge::TouchPoint pts[androidbridge::kMaxTouchPoints];
     const int32_t cnt = androidbridge::LoadTouchPoints(pts, androidbridge::kMaxTouchPoints);
-    // The primary pointer is s_touchPointer; find its position.
-    for (int32_t i = 0; i < cnt; ++i) {
-        if (pts[i].id == s_touchPointer) {
-            androidbridge::SetTouchMouse(pts[i].x, pts[i].y, false);
-            return;
-        }
+    if (cnt > 0) {
+        s_touchPointer = pts[0].id;
+        androidbridge::SetTouchMouse(pts[0].x, pts[0].y, false);
     }
-    // Primary pointer went away — reset mouse.
+    else {
+        s_touchPointer = -1;
+        androidbridge::SetTouchMouse(0.0f, 0.0f, false);
+    }
+}
+
+// Drops every finger at once. ACTION_CANCEL aborts the WHOLE gesture (not
+// just one pointer), and lifecycle events (pause, lost focus, surface going
+// away) mean Android will never deliver the missing UPs — leaving the slots
+// set would freeze the joystick at its last deflection and keep "ghost"
+// fingers hogging every slot, which is exactly how the HUD died before.
+void RechanAndroidResetTouch() {
     s_touchPointer = -1;
+    androidbridge::ClearAllTouchPoints();
     androidbridge::SetTouchMouse(0.0f, 0.0f, false);
 }
 
@@ -118,9 +113,10 @@ static void HandleTouchEvent(AInputEvent* event) {
     switch (actionCode) {
         case AMOTION_EVENT_ACTION_DOWN:
         case AMOTION_EVENT_ACTION_POINTER_DOWN: {
-            int32_t slot = FindTouchSlot(-1, true);
-            if (slot >= 0) {
-                androidbridge::SetTouchPoint(slot, pointerId, x, y, true);
+            // AcquireTouchSlot indexes the real bridge slots (reusing any
+            // stale same-id entry) — never the compacted LoadTouchPoints()
+            // view, which used to send a finger's data into the WRONG slot.
+            if (androidbridge::AcquireTouchSlot(pointerId, x, y) >= 0) {
                 if (s_touchPointer == -1) {
                     s_touchPointer = pointerId;
                     androidbridge::SetTouchMouse(x, y, false);
@@ -130,39 +126,56 @@ static void HandleTouchEvent(AInputEvent* event) {
             break;
         }
         case AMOTION_EVENT_ACTION_MOVE: {
-            for (int32_t i = 0; i < AMotionEvent_getPointerCount(event); ++i) {
+            const int32_t pointerCount = AMotionEvent_getPointerCount(event);
+            for (int32_t i = 0; i < pointerCount; ++i) {
                 const int32_t pid = AMotionEvent_getPointerId(event, i);
-                const int32_t slot = FindTouchSlot(pid, false);
-                if (slot >= 0) {
-                    androidbridge::SetTouchPoint(
-                        slot, pid, AMotionEvent_getX(event, i), AMotionEvent_getY(event, i), true);
+                const float px = AMotionEvent_getX(event, i);
+                const float py = AMotionEvent_getY(event, i);
+                int32_t slot = androidbridge::FindTouchSlotById(pid);
+                if (slot < 0) {
+                    // Missed the DOWN (slot pressure at the time): self-heal
+                    // by claiming a slot now instead of dropping the finger.
+                    slot = androidbridge::AcquireTouchSlot(pid, px, py);
+                    if (slot < 0) continue;
+                }
+                androidbridge::SetTouchPoint(slot, pid, px, py, true);
+            }
+            // Keep the emulated mouse on the primary finger.
+            if (s_touchPointer >= 0) {
+                androidbridge::TouchPoint pts[androidbridge::kMaxTouchPoints];
+                const int32_t cnt = androidbridge::LoadTouchPoints(pts, androidbridge::kMaxTouchPoints);
+                bool found = false;
+                for (int32_t i = 0; i < cnt; ++i) {
+                    if (pts[i].id == s_touchPointer) {
+                        androidbridge::SetTouchMouse(pts[i].x, pts[i].y, false);
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    AdoptPrimaryFromSlots();
                 }
             }
-            UpdateMouseFromPrimary();
             break;
         }
         case AMOTION_EVENT_ACTION_UP:
-        case AMOTION_EVENT_ACTION_POINTER_UP:
-        case AMOTION_EVENT_ACTION_CANCEL: {
-            const int32_t slot = FindTouchSlot(pointerId, false);
+        case AMOTION_EVENT_ACTION_POINTER_UP: {
+            const int32_t slot = androidbridge::FindTouchSlotById(pointerId);
             if (slot >= 0) {
-                if (actionCode != AMOTION_EVENT_ACTION_CANCEL) {
-                    androidbridge::QueueTouchTapPos(x, y);
-                }
+                androidbridge::QueueTouchTapPos(x, y);
                 androidbridge::ClearTouchPoint(slot);
                 if (pointerId == s_touchPointer) {
-                    s_touchPointer = -1;
-                    // If another finger is still down, adopt it as primary.
-                    androidbridge::TouchPoint pts[androidbridge::kMaxTouchPoints];
-                    const int32_t cnt = androidbridge::LoadTouchPoints(pts, androidbridge::kMaxTouchPoints);
-                    if (cnt > 0) {
-                        s_touchPointer = pts[0].id;
-                        androidbridge::SetTouchMouse(pts[0].x, pts[0].y, false);
-                    } else {
-                        androidbridge::SetTouchMouse(0.0f, 0.0f, false);
-                    }
+                    AdoptPrimaryFromSlots();
                 }
             }
+            break;
+        }
+        case AMOTION_EVENT_ACTION_CANCEL: {
+            // CANCEL aborts the entire gesture — every finger is up as far as
+            // the app is concerned. Clearing only the indexed pointer used to
+            // strand the others as "zombie" slots (joystick stuck dragging,
+            // buttons dead once the zombies filled all 4 slots).
+            RechanAndroidResetTouch();
             break;
         }
         default:

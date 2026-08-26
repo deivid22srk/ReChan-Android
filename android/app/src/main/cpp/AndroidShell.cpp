@@ -19,6 +19,7 @@
 
 extern int GameMain(int argc, char** argv);
 bool RechanAndroidHandleInputEvent(AInputEvent* event);
+void RechanAndroidResetTouch();
 
 // Belt-and-suspenders anchor: referencing glue's entry symbol here guarantees
 // the linker pulls native_app_glue's object out of the static archive (the
@@ -140,6 +141,10 @@ void HandleCommand(android_app* app, int32_t cmd) {
             }
             break;
         case APP_CMD_TERM_WINDOW:
+            // Fingers still down when the surface goes away will never get
+            // their UP events — drop them or the virtual joystick stays
+            // deflected and ghost fingers hog the touch slots forever.
+            RechanAndroidResetTouch();
             androidbridge::SetNativeWindow(nullptr);
             // The EGL surface keeps its own strong reference to the window, so
             // dropping ours here is safe; it only guards the handoff window.
@@ -149,9 +154,17 @@ void HandleCommand(android_app* app, int32_t cmd) {
             }
             break;
         case APP_CMD_PAUSE:
+        case APP_CMD_STOP:
+        case APP_CMD_LOST_FOCUS:
+            // Same story as TERM_WINDOW: the system takes the fingers away
+            // (shade pulled, home gesture, incoming call) without per-pointer
+            // UPs. Reset the touch state so the HUD starts clean on resume.
+            RechanAndroidResetTouch();
             // Backgrounded: silence the output device (the game loop parks on
             // its own once the surface goes away).
-            AudioEngine::Suspend();
+            if (cmd == APP_CMD_PAUSE) {
+                AudioEngine::Suspend();
+            }
             break;
         case APP_CMD_RESUME:
             AudioEngine::Resume();

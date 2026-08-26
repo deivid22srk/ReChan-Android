@@ -34,6 +34,7 @@ struct TouchSlot {
     std::atomic<float> x{0.0f};
     std::atomic<float> y{0.0f};
     std::atomic<bool> active{false};
+    std::atomic<uint32_t> seq{0}; // bumped on every (re)acquire (DOWN)
 };
 TouchSlot g_touchSlots[kMaxTouchPoints];
 } // namespace
@@ -158,14 +159,56 @@ void ClearTouchPoint(int32_t slot) {
 int32_t LoadTouchPoints(TouchPoint* out, int32_t max) {
     int32_t count = 0;
     for (int32_t s = 0; s < kMaxTouchPoints && count < max; ++s) {
-        if (!g_touchSlots[s].active.load(std::memory_order_relaxed)) continue;
+        // acquire pairs with AcquireTouchSlot's release store of active,
+        // so the id/x/y/seq written before it are visible once active.
+        if (!g_touchSlots[s].active.load(std::memory_order_acquire)) continue;
         TouchPoint& p = out[count++];
         p.id = g_touchSlots[s].id.load(std::memory_order_relaxed);
         p.x = g_touchSlots[s].x.load(std::memory_order_relaxed);
         p.y = g_touchSlots[s].y.load(std::memory_order_relaxed);
         p.active = true;
+        p.seq = g_touchSlots[s].seq.load(std::memory_order_relaxed);
     }
     return count;
+}
+
+int32_t FindTouchSlotById(int32_t pointerId) {
+    if (pointerId < 0) return -1;
+    for (int32_t s = 0; s < kMaxTouchPoints; ++s) {
+        if (!g_touchSlots[s].active.load(std::memory_order_acquire)) continue;
+        if (g_touchSlots[s].id.load(std::memory_order_relaxed) == pointerId) return s;
+    }
+    return -1;
+}
+
+int32_t AcquireTouchSlot(int32_t pointerId, float x, float y) {
+    if (pointerId < 0) return -1;
+    // Reuse the entry already holding this id if any (id collision after a
+    // missed UP self-heals here instead of leaking a duplicate).
+    int32_t slot = FindTouchSlotById(pointerId);
+    if (slot < 0) {
+        for (int32_t s = 0; s < kMaxTouchPoints; ++s) {
+            if (!g_touchSlots[s].active.load(std::memory_order_relaxed)) {
+                slot = s;
+                break;
+            }
+        }
+    }
+    if (slot < 0) return -1; // all slots busy
+    // Write id/x/y + a FRESH seq, active last so the game thread never sees
+    // a new activation paired with the previous touch's seq.
+    g_touchSlots[slot].id.store(pointerId, std::memory_order_relaxed);
+    g_touchSlots[slot].x.store(x, std::memory_order_relaxed);
+    g_touchSlots[slot].y.store(y, std::memory_order_relaxed);
+    g_touchSlots[slot].seq.fetch_add(1, std::memory_order_relaxed);
+    g_touchSlots[slot].active.store(true, std::memory_order_release);
+    return slot;
+}
+
+void ClearAllTouchPoints() {
+    for (int32_t s = 0; s < kMaxTouchPoints; ++s) {
+        ClearTouchPoint(s);
+    }
 }
 
 static_assert(GamepadButton::COUNT <= 32, "buttons fit in u32 bitmask");

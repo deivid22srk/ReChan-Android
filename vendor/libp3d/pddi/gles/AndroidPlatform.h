@@ -72,11 +72,33 @@ struct TouchPoint {
     float x = 0.0f;    // surface pixel coordinates
     float y = 0.0f;
     bool active = false;
+    // Bumped every time a slot is (re)acquired by a DOWN. Android recycles
+    // pointer ids across gestures, so id alone can't tell "same finger that
+    // grabbed the control" from "new finger that recycled the id within one
+    // frame" — the seq can.
+    uint32_t seq = 0;
 };
 
 void SetTouchPoint(int32_t slot, int32_t id, float x, float y, bool active);
 void ClearTouchPoint(int32_t slot);
 int32_t LoadTouchPoints(TouchPoint* out, int32_t max);
+
+// Real-slot helpers. CRITICAL: LoadTouchPoints() returns the active points
+// COMPACTED (packed at the front), so its indices are NOT slot indices.
+// Never use compacted indices with Set/ClearTouchPoint — that wrote a moving
+// finger into the wrong slot, duplicated its pointer id, and stranded
+// "zombie" slots that stayed active forever (stuck joystick + dead buttons).
+// These helpers index g_touchSlots directly:
+//   FindTouchSlotById  -> slot holding pointerId, or -1.
+//   AcquireTouchSlot   -> reuses the slot already holding pointerId (self-
+//                         heals a stale entry), else claims the first free
+//                         slot; writes id/x/y and marks it active. -1 if full.
+//   ClearAllTouchPoints-> releases every slot (ACTION_CANCEL aborts the WHOLE
+//                         gesture; lifecycle pause/resume must also drop all
+//                         fingers, since Android will never send their UP).
+int32_t FindTouchSlotById(int32_t pointerId);
+int32_t AcquireTouchSlot(int32_t pointerId, float x, float y);
+void ClearAllTouchPoints();
 
 // One-shot tap notification consumed by the game loop (used to turn a tap
 // into a Start press on the "press any button" title screen).
