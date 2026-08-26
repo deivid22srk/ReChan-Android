@@ -7,6 +7,10 @@
 #include "pddi/gles/AndroidPlatform.h"
 #include "pddi/pddidev.h"
 
+// Defined at file scope below (after the anonymous namespace) so that
+// AndroidShell.cpp can link against it.
+void RechanAndroidResetTouch();
+
 namespace {
 
 constexpr int32_t kSourceGamepadMask =
@@ -90,16 +94,8 @@ static void AdoptPrimaryFromSlots() {
     }
 }
 
-// Drops every finger at once. ACTION_CANCEL aborts the WHOLE gesture (not
-// just one pointer), and lifecycle events (pause, lost focus, surface going
-// away) mean Android will never deliver the missing UPs — leaving the slots
-// set would freeze the joystick at its last deflection and keep "ghost"
-// fingers hogging every slot, which is exactly how the HUD died before.
-void RechanAndroidResetTouch() {
-    s_touchPointer = -1;
-    androidbridge::ClearAllTouchPoints();
-    androidbridge::SetTouchMouse(0.0f, 0.0f, false);
-}
+// (RechanAndroidResetTouch is defined at file scope below, after the
+// anonymous namespace, so AndroidShell.cpp can link against it.)
 
 static void HandleTouchEvent(AInputEvent* event) {
     const int32_t action = AMotionEvent_getAction(event);
@@ -305,6 +301,19 @@ bool HandleMotionEvent(AInputEvent* event) {
 }
 
 } // namespace
+
+// Drops every finger at once. ACTION_CANCEL aborts the WHOLE gesture (not
+// just one pointer), and lifecycle events (pause, lost focus, surface going
+// away) mean Android will never deliver the missing UPs — leaving the slots
+// set would freeze the joystick at its last deflection and keep "ghost"
+// fingers hogging every slot, which is exactly how the HUD died before.
+// Defined at file scope (external linkage): AndroidShell.cpp calls this from
+// its command handler.
+void RechanAndroidResetTouch() {
+    s_touchPointer = -1;
+    androidbridge::ClearAllTouchPoints();
+    androidbridge::SetTouchMouse(0.0f, 0.0f, false);
+}
 
 bool RechanAndroidHandleInputEvent(AInputEvent* event) {
     switch (AInputEvent_getType(event)) {
