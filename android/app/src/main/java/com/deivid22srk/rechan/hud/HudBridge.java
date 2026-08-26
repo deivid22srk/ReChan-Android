@@ -41,6 +41,14 @@ public final class HudBridge {
 
     public static native void nativePostConnected(boolean connected);
 
+    /**
+     * Physical (Bluetooth/USB) gamepad presence, pushed by GameActivity's
+     * InputDevice listener. While true the engine hides the on-screen touch
+     * HUD (the real pad is the input); when the last pad disconnects the HUD
+     * comes back.
+     */
+    public static native void nativeSetPhysicalGamepad(boolean connected);
+
     /** Current gameplay context (touchhud::HudContext). */
     public static native int nativePollContext();
 }

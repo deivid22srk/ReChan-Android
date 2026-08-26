@@ -234,6 +234,13 @@ bool HandleKeyEvent(AInputEvent* event) {
 
     if (const KeyButtonEntry* entry = FindKeyEntry(keyCode)) {
         androidbridge::PostGamepadConnected(true);
+        // Gamepad-sourced button keys confirm a physical pad is present.
+        // Source must be GAMEPAD (not DPAD/KEYBOARD): TV remotes and the
+        // device's own hardware keys also send DPAD_* codes, but they can't
+        // drive analog gameplay and must not hide the touch HUD.
+        if ((AInputEvent_getSource(event) & AINPUT_SOURCE_GAMEPAD) != 0) {
+            androidbridge::SetPhysicalPadConnected(true);
+        }
         if (entry->pddiButton >= 0) {
             androidbridge::PostGamepadButton(entry->pddiButton, down);
         }
@@ -271,6 +278,13 @@ bool HandleMotionEvent(AInputEvent* event) {
     }
 
     androidbridge::PostGamepadConnected(true);
+
+    // Stick/trigger motion confirms a physical pad is present. DPAD-source
+    // motion (TV remote navigation) is excluded for the same reason as
+    // above: it can't play, so the touch HUD must stay available.
+    if ((source & (AINPUT_SOURCE_GAMEPAD | AINPUT_SOURCE_JOYSTICK)) != 0) {
+        androidbridge::SetPhysicalPadConnected(true);
+    }
 
     const float lx = ClampAxis(AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_X, 0));
     const float ly = ClampAxis(AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_Y, 0));

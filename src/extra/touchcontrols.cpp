@@ -201,10 +201,20 @@ void Update() {
     RecomputeLayout();
 
     const HudContext ctx = touchhud::GetContext();
+    // A physical (Bluetooth/USB) gamepad takes over: hide the on-screen
+    // controls AND suspend their input path, so palm brushes on the glass
+    // can't fight the real pad (GameActivity's InputDevice listener owns the
+    // flag; the last pad disconnecting brings the HUD right back).
+    const bool physicalPad = androidbridge::IsPhysicalPadConnected();
     const bool wantVisible = (ctx == HudContext::OnFoot
                               || ctx == HudContext::Climbing
-                              || ctx == HudContext::Menu);
-    if (wantVisible && !s_visible) {
+                              || ctx == HudContext::Menu)
+                              && !physicalPad;
+    if (wantVisible != s_visible) {
+        // Clean slate on EVERY visibility transition: entering (no stale
+        // controls from the previous state) and leaving (fingers holding
+        // joystick/buttons must release immediately instead of driving the
+        // game through the fade-out - e.g. right after a pad connects).
         ResetAll();
     }
     s_visible = wantVisible;
@@ -221,7 +231,9 @@ void Update() {
         if (s_alpha < 0.0f) { s_alpha = 0.0f; ResetAll(); }
     }
 
-    if (!s_visible && s_alpha <= 0.0f) return;
+    // Hidden (or fading out): no touch processing at all - controls were
+    // already released above, and new fingers must not grab anything.
+    if (!s_visible) return;
 
     androidbridge::TouchPoint pts[androidbridge::kMaxTouchPoints];
     const int32_t ptCount = androidbridge::LoadTouchPoints(pts, androidbridge::kMaxTouchPoints);
@@ -466,6 +478,9 @@ void EndMovieSkip() {
 
 void UpdateMovieSkip() {
     if (!s_movieSkippable) return;
+    // Physical pad connected: Start on the real pad skips the movie, so the
+    // on-screen skip button (and its touch path) stays suspended.
+    if (androidbridge::IsPhysicalPadConnected()) return;
     RecomputeLayout();
 
     androidbridge::TouchPoint pts[androidbridge::kMaxTouchPoints];
@@ -504,6 +519,7 @@ void UpdateMovieSkip() {
 
 void RenderMovieSkip() {
     if (!s_movieSkippable) return;
+    if (androidbridge::IsPhysicalPadConnected()) return;
     ScreenDraw::Batch batch;
 
     const float skipX = SCREEN_WIDTH * 0.90f;

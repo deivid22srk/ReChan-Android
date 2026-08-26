@@ -113,11 +113,12 @@ void PublishFrame() {
         const bool menuActive = g_feCustomMenuMgr && g_feCustomMenuMgr->IsActive();
         const bool mouseActive = g_feCustomMenuMgr ? g_feCustomMenuMgr->IsMouseActive() : false;
         LOG("[TouchDiag] down=%d pos=(%.0f,%.0f) menuActive=%d mouseActive=%d"
-            " hadGp=%d hadKb=%d ctx=%u",
+            " hadGp=%d hadKb=%d ctx=%u physPad=%d",
             touchDown ? 1 : 0, tx, ty, menuActive ? 1 : 0, mouseActive ? 1 : 0,
             (g_actionInput && g_actionInput->HadGamepadInputThisFrame()) ? 1 : 0,
             (g_actionInput && g_actionInput->HadKeyboardInputThisFrame()) ? 1 : 0,
-            static_cast<u32>(s_context));
+            static_cast<u32>(s_context),
+            androidbridge::IsPhysicalPadConnected() ? 1 : 0);
     }
 
     // "Press a button" screens (no menu active): a tap anywhere becomes the
@@ -129,11 +130,13 @@ void PublishFrame() {
     //                                  input, hence the gameOverFadeType gate)
     //   - Intro legal splash : A     (AnyJustPressed skips the splash; on PC
     //                                  any mouse button does the same)
-    // Two frames so the pad edge is sampled reliably.
+    // Two frames so the pad edge is sampled reliably. Suspended while a
+    // physical gamepad is connected: the real pad's own Start/A must drive
+    // these screens, and a stray screen tap must not.
     if (androidbridge::ConsumeTouchTap()) {
         const bool menuActive = g_feCustomMenuMgr && g_feCustomMenuMgr->IsActive();
         const GameState st = g_game ? g_game->GetState() : GameState::Null;
-        if (!menuActive) {
+        if (!menuActive && !androidbridge::IsPhysicalPadConnected()) {
             if (st == GameState::TitleLoop && s_startPulseFrames == 0) {
                 s_startPulseFrames = 2;
             }
@@ -169,6 +172,11 @@ void PublishFrame() {
     // the Game Over screen must not click an entry of the Location menu that
     // appears right after the fade, and HUD button taps during gameplay must
     // not click the pause menu opened a moment later.
+    //
+    // NOTE: direct menu TAPS stay enabled even with a physical gamepad
+    // connected - mixed input is convenient and harmless - so this drain only
+    // runs while no menu is up; an active menu's Invoke() consumes its taps
+    // itself during game.Step().
     if (!(g_feCustomMenuMgr && g_feCustomMenuMgr->IsActive())) {
         float drainX = 0.0f;
         float drainY = 0.0f;
@@ -214,6 +222,15 @@ Java_com_deivid22srk_rechan_hud_HudBridge_nativePostConnected(
 JNIEXPORT jint JNICALL
 Java_com_deivid22srk_rechan_hud_HudBridge_nativePollContext(JNIEnv*, jclass) {
     return static_cast<jint>(touchhud::GetContext());
+}
+
+JNIEXPORT void JNICALL
+Java_com_deivid22srk_rechan_hud_HudBridge_nativeSetPhysicalGamepad(
+    JNIEnv*, jclass, jboolean connected) {
+    // Pushed by GameActivity's InputDevice.InputDeviceListener: a physical
+    // (Bluetooth/USB) gamepad connecting hides the on-screen touch HUD, the
+    // last pad disconnecting brings it back.
+    androidbridge::SetPhysicalPadConnected(connected == JNI_TRUE);
 }
 
 } // extern "C"

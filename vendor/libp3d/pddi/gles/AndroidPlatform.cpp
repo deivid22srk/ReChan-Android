@@ -19,6 +19,11 @@ std::atomic<float> g_axes[GamepadAxis::COUNT] = {};
 // from the first frame, before the first touch. Physical pad / on-screen
 // presses merely keep the flag set.
 std::atomic<bool> g_padConnected{true};
+// Physical (Bluetooth/USB) gamepad presence — only gates the touch HUD
+// visibility, never the engine's gamepad mode. Written by the Java
+// InputDevice listener and by native gamepad-sourced events; read once per
+// frame by the game thread.
+std::atomic<bool> g_physicalPadConnected{false};
 std::atomic<uint32_t> g_hudContext{0};
 std::atomic<float> g_touchX{0.0f};
 std::atomic<float> g_touchY{0.0f};
@@ -87,6 +92,14 @@ void PostGamepadAxis(int pddiAxis, float value) {
 
 void PostGamepadConnected(bool connected) {
     g_padConnected.store(connected, std::memory_order_relaxed);
+}
+
+void SetPhysicalPadConnected(bool connected) {
+    g_physicalPadConnected.store(connected, std::memory_order_relaxed);
+}
+
+bool IsPhysicalPadConnected() {
+    return g_physicalPadConnected.load(std::memory_order_relaxed);
 }
 
 PadSnapshot LoadPadSnapshot() {

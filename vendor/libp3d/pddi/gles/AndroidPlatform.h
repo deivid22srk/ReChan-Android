@@ -52,6 +52,18 @@ struct PadSnapshot {
 
 PadSnapshot LoadPadSnapshot();
 
+// --- Physical gamepad presence (Java InputDevice listener -> game thread) ---
+// True while a physical (Bluetooth/USB) gamepad is connected. Completely
+// independent of the virtual touch pad above: PostGamepadConnected drives the
+// ENGINE's "is a pad plugged in" mode (which stays true on this touch-first
+// build), while this flag only decides whether the on-screen touch HUD
+// should be visible. Producers: the Java InputDevice.InputDeviceListener
+// (GameActivity) for connect AND disconnect, plus a native self-confirm when
+// gamepad-sourced events arrive (AndroidInput.cpp). Consumer: the game thread
+// (touchhud/touchcontrols) once per frame.
+void SetPhysicalPadConnected(bool connected);
+bool IsPhysicalPadConnected();
+
 // --- Touch HUD context (game thread -> UI thread) ---
 // Published by the game loop each frame; the Java overlay polls it to decide
 // which on-screen controls to show. Values match touchhud::HudContext.
