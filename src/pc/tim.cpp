@@ -746,6 +746,21 @@ void ScreenDraw::DrawColoredRect(f32 x, f32 y, f32 w, f32 h,
     EndOverlay(prev);
 }
 
+void ScreenDraw::DrawTriangle(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
+                              u8 r, u8 g, u8 b, u8 a) {
+    // Triangles only queue vertices: they must be drawn inside an active
+    // Batch so the overlay state and the final flush are handled there. This
+    // keeps them ordered with the other batched primitives (circles/rects).
+    if (s_overlayBatchDepth <= 0 || a == 0) {
+        return;
+    }
+    EnsureShader();
+    EnsurePrimitiveBatchTexture(nullptr);
+    QueueBatchedVertex(x0, y0, 0.0f, 0.0f, r, g, b, a);
+    QueueBatchedVertex(x1, y1, 0.0f, 0.0f, r, g, b, a);
+    QueueBatchedVertex(x2, y2, 0.0f, 0.0f, r, g, b, a);
+}
+
 void ScreenDraw::DrawGouraudQuad(f32 x0, f32 y0, u8 r0, u8 g0, u8 b0, u8 a0,
                                  f32 x1, f32 y1, u8 r1, u8 g1, u8 b1, u8 a1,
                                  f32 x2, f32 y2, u8 r2, u8 g2, u8 b2, u8 a2,

@@ -32,25 +32,25 @@ struct Control {
     float nr;        // normalized radius
 };
 
+// L1/R1 sit above the action diamond (LB=COUNTER, RB=DIVE_ROLL) so all combat
+// inputs live on the right thumb; the left side is reserved for the joystick.
+// Y is kept off the far right edge so the circle is never clipped.
 static const Control kControls[] = {
     {"joy", "",    -1,                         0.120f, 0.700f, 0.105f},
     {"A",   "A",   GamepadButton::A,           0.865f, 0.775f, 0.072f},
     {"B",   "B",   GamepadButton::B,           0.775f, 0.685f, 0.062f},
     {"X",   "X",   GamepadButton::X,           0.875f, 0.600f, 0.062f},
-    {"Y",   "Y",   GamepadButton::Y,           0.965f, 0.690f, 0.062f},
+    {"Y",   "Y",   GamepadButton::Y,           0.950f, 0.690f, 0.062f},
     {"RB",  "R1",  GamepadButton::RightBumper, 0.950f, 0.520f, 0.050f},
-    {"LB",  "L1",  GamepadButton::LeftBumper,  0.045f, 0.280f, 0.050f},
-    {"ST",  "≡",   GamepadButton::Start,       0.500f, 0.940f, 0.042f},
+    {"LB",  "L1",  GamepadButton::LeftBumper,  0.845f, 0.455f, 0.050f},
+    {"ST",  "",    GamepadButton::Start,       0.500f, 0.940f, 0.048f},
 };
 static constexpr int32_t kControlCount = sizeof(kControls) / sizeof(kControls[0]);
 static constexpr int32_t kJoyIdx = 0;
 
 // ---------------------------------------------------------------------------
 // Visual style — dark translucent fills + light outlines so the white labels
-// stay readable on top of the game frame. Matches the look of common mobile
-// touch overlays (PPSSPP / AetherSX2 style) and avoids the previous issue
-// where the white "Pular" / A / B / X / Y labels were camouflaged against a
-// white circle background and looked like they were rendered behind.
+// stay readable on top of the game frame (PPSSPP / AetherSX2 style).
 // ---------------------------------------------------------------------------
 
 struct TouchColor {
@@ -74,11 +74,7 @@ static inline u8 FadeAlpha(u8 a, float fade) {
 }
 
 // Thin wrappers that pass all positional args to ScreenDraw's circle helpers
-// so the color lands in the (r,g,b,a) tail, not in the UV slots. The previous
-// code called DrawFilledCircle(x, y, r, r, R, G, B, A) — those trailing 4
-// args matched u0/v0/u1/v1, leaving the color at its default (255,255,255,255),
-// which is why the "Pular" / A / B / X / Y labels were camouflaged against an
-// opaque white circle and looked like they were rendered behind the button.
+// so the color lands in the (r,g,b,a) tail, not in the UV slots.
 static inline void FillCircle(float x, float y, float rx, float ry,
                              const TouchColor& c) {
     ScreenDraw::DrawFilledCircle(x, y, rx, ry,
@@ -121,13 +117,20 @@ static void RecomputeLayout() {
 
 // ---------------------------------------------------------------------------
 // State
+//
+// Pointers are tracked by their stable Android pointer ID (TouchPoint.id).
+// They must NEVER be tracked by index into the LoadTouchPoints() result:
+// that array is compacted (only active points are returned), so indices shift
+// whenever another finger lifts. Index-based tracking made the joystick grab
+// the wrong finger — the character walked by itself — and made held buttons
+// drop spontaneously.
 // ---------------------------------------------------------------------------
 
 static bool s_visible = false;
 static float s_alpha = 0.0f;
 static bool s_btnDown[kControlCount] = {};
-static int32_t s_btnSlot[kControlCount]; // touch slot per control, -1 = none
-static int32_t s_joySlot = -1;           // touch slot dragging joystick
+static int32_t s_btnPointer[kControlCount]; // pointer id per button, -1 = none
+static int32_t s_joyPointer = -1;           // pointer id dragging joystick
 static float s_knobX = 0.0f;
 static float s_knobY = 0.0f;
 
@@ -144,19 +147,23 @@ static int32_t FindControlAt(float x, float y) {
     return -1;
 }
 
+static void ReleaseJoystick() {
+    androidbridge::PostGamepadAxis(GamepadAxis::LeftX, 0.0f);
+    androidbridge::PostGamepadAxis(GamepadAxis::LeftY, 0.0f);
+    s_joyPointer = -1;
+    s_knobX = s_knobY = 0.0f;
+}
+
 static void ResetAll() {
     for (int32_t i = 0; i < kControlCount; ++i) {
         if (kControls[i].buttonId >= 0 && s_btnDown[i]) {
             androidbridge::PostGamepadButton(kControls[i].buttonId, false);
             s_btnDown[i] = false;
-            s_btnSlot[i] = -1;
+            s_btnPointer[i] = -1;
         }
     }
-    if (s_joySlot >= 0) {
-        androidbridge::PostGamepadAxis(GamepadAxis::LeftX, 0.0f);
-        androidbridge::PostGamepadAxis(GamepadAxis::LeftY, 0.0f);
-        s_joySlot = -1;
-        s_knobX = s_knobY = 0.0f;
+    if (s_joyPointer >= 0) {
+        ReleaseJoystick();
     }
 }
 
@@ -215,33 +222,38 @@ void Update() {
     androidbridge::TouchPoint pts[androidbridge::kMaxTouchPoints];
     const int32_t ptCount = androidbridge::LoadTouchPoints(pts, androidbridge::kMaxTouchPoints);
 
-    // 1) Release any button whose touch slot is gone.
+    // Stable identity lookup: find a touch point by pointer id.
+    auto findById = [&pts, ptCount](int32_t id) -> const androidbridge::TouchPoint* {
+        if (id < 0) return nullptr;
+        for (int32_t i = 0; i < ptCount; ++i) {
+            if (pts[i].active && pts[i].id == id) return &pts[i];
+        }
+        return nullptr;
+    };
+
+    // 1) Release any button whose pointer is gone.
     for (int32_t ci = 0; ci < kControlCount; ++ci) {
         if (kControls[ci].buttonId < 0 || !s_btnDown[ci]) continue;
-        const int32_t slot = s_btnSlot[ci];
-        const bool stillHeld = (slot >= 0 && slot < ptCount && pts[slot].active);
-        if (!stillHeld) {
+        if (!findById(s_btnPointer[ci])) {
             s_btnDown[ci] = false;
-            s_btnSlot[ci] = -1;
+            s_btnPointer[ci] = -1;
             androidbridge::PostGamepadButton(kControls[ci].buttonId, false);
         }
     }
 
-    // Release joystick if its slot is gone.
-    if (s_joySlot >= 0 && !(s_joySlot < ptCount && pts[s_joySlot].active)) {
-        androidbridge::PostGamepadAxis(GamepadAxis::LeftX, 0.0f);
-        androidbridge::PostGamepadAxis(GamepadAxis::LeftY, 0.0f);
-        s_joySlot = -1;
-        s_knobX = s_knobY = 0.0f;
+    // Release the joystick if its pointer is gone.
+    if (s_joyPointer >= 0 && !findById(s_joyPointer)) {
+        ReleaseJoystick();
     }
 
-    // 2) Assign/update active pointers.
+    // 2) Assign/update active pointers (matched by id, never by index).
     bool anyActive = false;
     for (int32_t pi = 0; pi < ptCount; ++pi) {
         if (!pts[pi].active) continue;
+        const int32_t pid = pts[pi].id;
 
         // Joystick follow
-        if (s_joySlot == pi) {
+        if (s_joyPointer == pid) {
             const float dx = pts[pi].x - s_cx[kJoyIdx];
             const float dy = pts[pi].y - s_cy[kJoyIdx];
             const float r = s_joyBaseR;
@@ -256,10 +268,10 @@ void Update() {
             continue;
         }
 
-        // Already holding a button with this pointer?
+        // Pointer already holding a button?
         bool handled = false;
         for (int32_t ci = 0; ci < kControlCount; ++ci) {
-            if (kControls[ci].buttonId >= 0 && s_btnDown[ci] && s_btnSlot[ci] == pi) {
+            if (kControls[ci].buttonId >= 0 && s_btnDown[ci] && s_btnPointer[ci] == pid) {
                 handled = true;
                 anyActive = true;
                 break;
@@ -273,12 +285,12 @@ void Update() {
 
         if (kControls[hit].buttonId >= 0) {
             s_btnDown[hit] = true;
-            s_btnSlot[hit] = pi;
+            s_btnPointer[hit] = pid;
             androidbridge::PostGamepadButton(kControls[hit].buttonId, true);
             anyActive = true;
         }
-        else if (hit == kJoyIdx && s_joySlot == -1) {
-            s_joySlot = pi;
+        else if (hit == kJoyIdx && s_joyPointer == -1) {
+            s_joyPointer = pid;
             const float dx = pts[pi].x - s_cx[kJoyIdx];
             const float dy = pts[pi].y - s_cy[kJoyIdx];
             s_knobX = dx / s_joyBaseR;
@@ -310,16 +322,11 @@ void Render() {
     const HudContext ctx = touchhud::GetContext();
 
     TextManager* tm = g_textManager;
-    if (tm) {
-        tm->SetFontByName("Menu");
-        tm->SetColor(kText.r, kText.g, kText.b, kText.a);
-        tm->SetPromptsEnabled(true);
-    }
 
     // Pass 1: draw every visible control's background (filled circle + ring
-    // + joystick knob). Drawing all circles first avoids per-button texture
-    // flushes breaking the per-control draw order, and gives the text pass a
-    // clean slate to render on top of.
+    // + joystick knob). The Start button gets a 3-bar "menu" glyph drawn as
+    // batched rects — the PSX bitmap font has no '≡' glyph (it rendered as a
+    // broken '?'-looking mark before).
     for (int32_t i = 0; i < kControlCount; ++i) {
         if (!IsControlInteractive(i, ctx)) continue;
 
@@ -335,6 +342,21 @@ void Render() {
             ring.a = FadeAlpha(ring.a, s_alpha);
             FillCircle(x, y, r, r, fill);
             RingCircle(x, y, r, r, std::max(2.0f, r * 0.06f), ring);
+
+            if (std::strcmp(kControls[i].id, "ST") == 0) {
+                // Hamburger/menu bars, queued after the circle so they land
+                // on top of it in the same batch.
+                TouchColor bar = kRing;
+                bar.a = FadeAlpha(bar.a, s_alpha);
+                const float barW = r * 1.15f;
+                const float barH = std::max(2.0f, r * 0.16f);
+                for (int b = 0; b < 3; ++b) {
+                    const float by = (y - r * 0.34f) + b * (r * 0.34f);
+                    ScreenDraw::DrawColoredRect(x - barW * 0.5f, by,
+                                                barW, barH,
+                                                bar.r, bar.g, bar.b, bar.a);
+                }
+            }
         }
         else {
             // Joystick base + knob
@@ -352,11 +374,14 @@ void Render() {
         }
     }
 
-    // Pass 2: render labels on top of the circles. The text backend uses a
-    // different texture (the font atlas), which causes the pending circle
-    // batch to flush before the glyphs queue — so labels always land on top
-    // of their corresponding button.
+    // Pass 2: render text labels on top of the circles. The text backend
+    // queues glyph quads with the font atlas texture, which flushes the
+    // pending circle batch first — so labels always land on top.
     if (tm) {
+        tm->SetFontByName("Menu");
+        tm->SetColor(kText.r, kText.g, kText.b, kText.a);
+        tm->SetPromptsEnabled(true);
+
         for (int32_t i = 0; i < kControlCount; ++i) {
             if (!IsControlInteractive(i, ctx)) continue;
             if (kControls[i].buttonId < 0) continue;
@@ -385,59 +410,112 @@ void Reset() {
 // Movie / cutscene skip
 // ---------------------------------------------------------------------------
 
-static void DoSkip() {
+static bool s_movieSkippable = false; // PlayMovie(skippable) gates everything
+static bool s_skipHeld = false;       // Start posted down, waiting for release
+static int32_t s_skipPointer = -1;    // pointer that already triggered a skip
+
+static void DoSkip(int32_t pointerId) {
+    if (s_skipHeld) return; // one press per touch
+    s_skipHeld = true;
+    s_skipPointer = pointerId;
     androidbridge::PostGamepadConnected(true);
     androidbridge::PostGamepadButton(GamepadButton::Start, true);
 }
 
+void SetMovieSkippable(bool skippable) {
+    s_movieSkippable = skippable;
+}
+
+void EndMovieSkip() {
+    // The PlayMovie loop breaks the frame Start goes down; without this the
+    // virtual Start would stay held and instantly open the pause menu (or
+    // skip the next movie) after playback.
+    if (s_skipHeld) {
+        androidbridge::PostGamepadButton(GamepadButton::Start, false);
+        s_skipHeld = false;
+    }
+    s_movieSkippable = false;
+    s_skipPointer = -1;
+}
+
 void UpdateMovieSkip() {
+    if (!s_movieSkippable) return;
     RecomputeLayout();
 
     androidbridge::TouchPoint pts[androidbridge::kMaxTouchPoints];
     const int32_t ptCount = androidbridge::LoadTouchPoints(pts, androidbridge::kMaxTouchPoints);
 
     const float skipX = SCREEN_WIDTH * 0.90f;
-    const float skipY = SCREEN_HEIGHT * 0.05f;
+    const float skipY = SCREEN_HEIGHT * 0.075f;
     const float skipR = std::min(SCREEN_WIDTH, SCREEN_HEIGHT) * 0.055f;
+
+    // A finger that already skipped stays ignored until it lifts, so holding
+    // the button through the rest of the movie doesn't re-trigger.
+    bool skipPointerDown = false;
 
     for (int32_t i = 0; i < ptCount; ++i) {
         if (!pts[i].active) continue;
+
         const float dx = pts[i].x - skipX;
         const float dy = pts[i].y - skipY;
-        if (dx * dx + dy * dy <= skipR * skipR * 2.0f) {
-            DoSkip();
+        const bool inSkip = (dx * dx + dy * dy <= skipR * skipR * 2.0f);
+
+        if (inSkip && pts[i].id != s_skipPointer) {
+            DoSkip(pts[i].id);
             return;
         }
+        if (pts[i].id == s_skipPointer) {
+            skipPointerDown = true;
+        }
+    }
+
+    if (!skipPointerDown) {
+        s_skipPointer = -1;
     }
 }
 
 void RenderMovieSkip() {
+    if (!s_movieSkippable) return;
     ScreenDraw::Batch batch;
 
     const float skipX = SCREEN_WIDTH * 0.90f;
-    const float skipY = SCREEN_HEIGHT * 0.05f;
+    const float skipY = SCREEN_HEIGHT * 0.075f;
     const float r = std::min(SCREEN_WIDTH, SCREEN_HEIGHT) * 0.055f;
 
-    // Pass 1: dark filled circle + light ring on top of the movie frame.
-    // Uses the corrected color path: alpha lands in the color channel, not
-    // in the UV slot, so the "Pular" label can be read on top of the circle.
+    // Dark filled circle + light ring on top of the movie frame.
     FillCircle(skipX, skipY, r, r, kSkipFill);
     RingCircle(skipX, skipY, r, r, std::max(2.0f, r * 0.06f), kSkipRing);
 
-    // Pass 2: "Pular" label on top of the circle. The text backend uses the
-    // font atlas texture, which forces the pending circle batch to flush
-    // before the glyphs are queued — so the label is guaranteed to render
-    // on top of the dark fill, not behind it.
+    // Fast-forward ">>" glyph drawn as two triangles queued in the same
+    // batch. During PlayMovie the FE fonts are often not loaded yet (they
+    // are (re)loaded after the movie), so a text-only label would leave an
+    // empty circle — the "ball" artifact. The glyph needs no font and makes
+    // the button read as "skip" on its own.
+    const TouchColor& g = kSkipText;
+    const float tw = r * 0.52f;
+    const float th = r * 0.90f;
+    const float gap = r * 0.20f;
+    const float x0 = skipX - tw - gap * 0.5f;
+    const float x1 = skipX + gap * 0.5f;
+    ScreenDraw::DrawTriangle(x0, skipY - th * 0.5f, x0, skipY + th * 0.5f,
+                             x0 + tw, skipY, g.r, g.g, g.b, g.a);
+    ScreenDraw::DrawTriangle(x1, skipY - th * 0.5f, x1, skipY + th * 0.5f,
+                             x1 + tw, skipY, g.r, g.g, g.b, g.a);
+
+    // Optional "Pular" caption under the button — only when a font is
+    // actually loaded (MeasureString returns zero bounds otherwise).
     if (g_textManager) {
         g_textManager->SetFontByName("Menu");
         g_textManager->SetColor(kSkipText.r, kSkipText.g, kSkipText.b, kSkipText.a);
         g_textManager->SetPromptsEnabled(true);
         g_textManager->SetAlignment(TextAlign_Center);
-        const f32 textScale = (r * 1.6f) / 48.0f;
+        const f32 textScale = (r * 0.85f) / 48.0f;
         g_textManager->SetScale(SCREEN_SCALE_Y(textScale), SCREEN_SCALE_Y(textScale));
         const char* skipLabel = "Pular";
         const TextBounds b = g_textManager->MeasureString(skipLabel);
-        g_textManager->PrintString(skipLabel, skipX, skipY - b.height / 2.0f);
+        if (b.width > 0.0f && b.height > 0.0f) {
+            g_textManager->PrintString(skipLabel, skipX, skipY + r * 1.15f);
+        }
     }
 }
 

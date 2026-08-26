@@ -24,6 +24,15 @@ void Reset();
 
 // --- Cutscene / movie skip -------------------------------------------------
 
+// Gate the skip button with PlayMovie's skippable flag: non-skippable movies
+// (logos, credits) must neither show the button nor post virtual input.
+void SetMovieSkippable(bool skippable);
+
+// Release the virtual Start press and clear the skip state. MUST be called
+// after the PlayMovie loop ends (skip or natural end), otherwise Start stays
+// held down and leaks into the next game state.
+void EndMovieSkip();
+
 // Process touches against the "skip" button (used inside the blocking
 // PlayMovie loop where the main loop doesn't run).
 void UpdateMovieSkip();

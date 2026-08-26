@@ -2298,6 +2298,12 @@ void Game::PlayMovie(const char* name, s32 skippable, s32 unloadLevel) {
         f64 prevFrame = Time::GetTimeInSeconds();
         f32 targetDt = 1.0f / player->GetFrameRate();
 
+#if defined(RC_PLATFORM_ANDROID)
+        // The skip button only shows (and only feeds input) for skippable
+        // movies; logo/credit movies must not display a fake skip button.
+        touchcontrols::SetMovieSkippable(skippable != 0);
+#endif
+
         while (!player->IsFinished() && !p3d::display->ShouldClose()) {
             f64 now = Time::GetTimeInSeconds();
             f32 elapsed = (f32)(now - prevFrame);
@@ -2338,6 +2344,12 @@ void Game::PlayMovie(const char* name, s32 skippable, s32 unloadLevel) {
 #endif
             g_display->EndFrame();
         }
+
+#if defined(RC_PLATFORM_ANDROID)
+        // Release the virtual Start press (a skip leaves it held down) and
+        // clear the skip state so it never leaks into the next game state.
+        touchcontrols::EndMovieSkip();
+#endif
     }
 
     // PSX: destructor 0x8001434C with param 3
