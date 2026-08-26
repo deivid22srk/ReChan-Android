@@ -248,7 +248,11 @@ bool HandleMotionEvent(AInputEvent* event) {
     // intentionally NOT emulated — direct taps handled by the menu's
     // ProcessTouchTaps would otherwise double-activate alongside a mouse
     // left-click Confirm). Multi-touch slots drive the on-screen controls.
-    if ((source & AINPUT_SOURCE_TOUCHSCREEN) != 0) {
+    // Require BOTH source bits (class-pointer + touchscreen): mice, styluses
+    // and touchpads share the pointer class bit, and treating their events
+    // as finger input made the engine "recognize a mouse" that doesn't
+    // exist while the virtual gamepad was also active.
+    if ((source & AINPUT_SOURCE_TOUCHSCREEN) == AINPUT_SOURCE_TOUCHSCREEN) {
         HandleTouchEvent(event);
         return true;
     }

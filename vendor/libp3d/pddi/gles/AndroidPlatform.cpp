@@ -13,7 +13,12 @@ std::atomic<uint64_t> g_windowGeneration{0};
 std::atomic<bool> g_exitRequested{false};
 std::atomic<uint32_t> g_heldButtons{0};
 std::atomic<float> g_axes[GamepadAxis::COUNT] = {};
-std::atomic<bool> g_padConnected{false};
+// Touch-first device: the on-screen HUD feeds a virtual gamepad that is
+// always present, so the engine starts (and stays) in gamepad mode —
+// analog pad type, gamepad prompt glyphs and pad menu navigation work
+// from the first frame, before the first touch. Physical pad / on-screen
+// presses merely keep the flag set.
+std::atomic<bool> g_padConnected{true};
 std::atomic<uint32_t> g_hudContext{0};
 std::atomic<float> g_touchX{0.0f};
 std::atomic<float> g_touchY{0.0f};

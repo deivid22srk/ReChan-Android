@@ -324,6 +324,14 @@ static int RechanMain(int argc, char** argv) {
 
         p3d::display->PollEvents();
 
+#if defined(RC_PLATFORM_ANDROID)
+        // Feed the virtual gamepad BEFORE polling input so this frame's
+        // touch hits land in the same ServiceInput/ActionInput snapshot
+        // (they used to be posted at the end of the frame and only became
+        // visible one frame later).
+        touchhud::ProcessInput();
+#endif
+
         if (p3d::input) {
             p3d::input->ServiceInput();
         }

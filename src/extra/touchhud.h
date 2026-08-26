@@ -23,6 +23,12 @@ enum class HudContext : u32 {
 // Called once per frame from the main loop (game thread).
 void PublishFrame();
 
+// Feed the on-screen touch controls (virtual gamepad) once per frame.
+// Must run BEFORE PlatformInput::ServiceInput() in the main loop so the
+// virtual pad state posted here is polled in the SAME frame instead of
+// one frame later.
+void ProcessInput();
+
 // Current context (also readable from any thread).
 HudContext GetContext();
 

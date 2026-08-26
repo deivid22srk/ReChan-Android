@@ -1127,6 +1127,24 @@ void feCustomMenuMgr::UpdateMouseCursorVisibility() {
     if (!g_actionInput)
         return;
 
+#if defined(RC_PLATFORM_ANDROID)
+    // Touch-first device: the "mouse position" is the user's finger (the
+    // touch-as-mouse bridge) and mouse buttons are never emulated, so
+    // hover/cursor mode is useless — direct taps go through
+    // ProcessTouchTaps() and navigation through the virtual gamepad.
+    // Previously a finger drag (>4px) woke cursor mode, which gated the
+    // pad navigation off and made menus look "stuck"/frozen. Keep the
+    // mouse path permanently OFF on Android.
+    if (m_mouseInputActive || m_mousePosInitialized) {
+        m_mouseInputActive = false;
+        m_mousePosInitialized = false;
+        if (g_display) {
+            g_display->SetCursorVisible(false);
+        }
+    }
+    return;
+#endif
+
     double sx = 0.0;
     double sy = 0.0;
     g_actionInput->GetMousePosition(sx, sy);

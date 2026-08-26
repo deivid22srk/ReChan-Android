@@ -84,12 +84,17 @@ HudContext ComputeContext() {
 
 } // namespace
 
+void ProcessInput() {
+    // On-screen touch controls (joystick + action buttons): hit-test the
+    // current fingers and post virtual gamepad buttons/axes. Runs BEFORE
+    // PlatformInput::ServiceInput() in the main loop (see main.cpp) so the
+    // state lands in this frame's pad snapshot, not the next one.
+    touchcontrols::Update();
+}
+
 void PublishFrame() {
     s_context = ComputeContext();
     androidbridge::SetHudContext(static_cast<u32>(s_context));
-
-    // On-screen touch controls (joystick + action buttons).
-    touchcontrols::Update();
 
     // Touch diagnostics (throttled): confirm the touch->mouse chain end to end.
     static s32 s_diagCounter = 0;
