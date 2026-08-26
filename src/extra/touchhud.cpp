@@ -24,7 +24,8 @@ namespace touchhud {
 
 namespace {
 HudContext s_context = HudContext::Hidden;
-s32 s_startPulseFrames = 0;
+s32 s_startPulseFrames = 0;   // tap->Start pulse (title "press start")
+s32 s_confirmPulseFrames = 0; // tap->A pulse ("press A to continue" screens)
 
 bool IsClimbState(s32 actionState) {
     switch (actionState) {
@@ -61,7 +62,15 @@ HudContext ComputeContext() {
         case GameState::DbgMenu:
         case GameState::LocationMenu:
         case GameState::OpenLocationMenu:
+        case GameState::EndGameLoop:
+            // EndGameLoop = Game Over screen ("Press A to continue"): needs the
+            // navigation set so touch-only players can confirm and leave it.
             return HudContext::Menu;
+
+        case GameState::Intro:
+            // Legal splash auto-expires, but a tap can skip it (see the
+            // confirm pulse in PublishFrame) - no HUD needed while it plays.
+            return HudContext::Hidden;
 
         case GameState::Play: {
             if (g_directorActive != 0 || (g_director && g_director->scriptState != 0)) {
@@ -111,14 +120,33 @@ void PublishFrame() {
             static_cast<u32>(s_context));
     }
 
-    // Title screen "press any button": a tap anywhere becomes a Start press
-    // (the custom menu is inactive during that phase, so taps aren't menu
-    // clicks yet). Two frames so the pad edge is sampled reliably.
+    // "Press a button" screens (no menu active): a tap anywhere becomes the
+    // button that screen waits for, so touch-only players are never stuck:
+    //   - TitleLoop          : Start ("press start" screen)
+    //   - EndGameLoop        : A     (Game Over "press A to continue"; the
+    //                                  screen also accepts Start/Cross via the
+    //                                  virtual pad, and the fade phase ignores
+    //                                  input, hence the gameOverFadeType gate)
+    //   - Intro legal splash : A     (AnyJustPressed skips the splash; on PC
+    //                                  any mouse button does the same)
+    // Two frames so the pad edge is sampled reliably.
     if (androidbridge::ConsumeTouchTap()) {
         const bool menuActive = g_feCustomMenuMgr && g_feCustomMenuMgr->IsActive();
-        const bool onTitle = g_game && g_game->GetState() == GameState::TitleLoop;
-        if (!menuActive && onTitle && s_startPulseFrames == 0) {
-            s_startPulseFrames = 2;
+        const GameState st = g_game ? g_game->GetState() : GameState::Null;
+        if (!menuActive) {
+            if (st == GameState::TitleLoop && s_startPulseFrames == 0) {
+                s_startPulseFrames = 2;
+            }
+            else if (st == GameState::EndGameLoop
+                     && g_game && !g_game->IsGameOverFading()
+                     && s_confirmPulseFrames == 0) {
+                s_confirmPulseFrames = 2;
+            }
+            else if (st == GameState::Intro
+                     && g_game && g_game->IsIntroSplashActive()
+                     && s_confirmPulseFrames == 0) {
+                s_confirmPulseFrames = 2;
+            }
         }
     }
     if (s_startPulseFrames > 0) {
@@ -128,6 +156,23 @@ void PublishFrame() {
         androidbridge::PostGamepadConnected(true);
         androidbridge::PostGamepadButton(GamepadButton::Start, s_startPulseFrames == 2);
         --s_startPulseFrames;
+    }
+    if (s_confirmPulseFrames > 0) {
+        androidbridge::PostGamepadConnected(true);
+        androidbridge::PostGamepadButton(GamepadButton::A, s_confirmPulseFrames == 2);
+        --s_confirmPulseFrames;
+    }
+
+    // With no menu active, nothing during game.Step() consumed the pending
+    // UP-side tap (the one carrying a position). Drain it so it can't
+    // resurface as a phantom click when the next menu opens - e.g. taps on
+    // the Game Over screen must not click an entry of the Location menu that
+    // appears right after the fade, and HUD button taps during gameplay must
+    // not click the pause menu opened a moment later.
+    if (!(g_feCustomMenuMgr && g_feCustomMenuMgr->IsActive())) {
+        float drainX = 0.0f;
+        float drainY = 0.0f;
+        ConsumeMenuTap(drainX, drainY);
     }
 }
 

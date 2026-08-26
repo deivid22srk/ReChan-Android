@@ -98,6 +98,11 @@ public:
     bool IsAutosaveSpinnerVisible() const { return autosavePhase == 1 || autosavePhase == 2; }
     bool IsAutosaveFailureVisible() const { return autosavePhase == 3; }
 
+    // Touch overlay queries: is the Game Over screen already fading out
+    // (input ignored), and is the intro legal splash still playing?
+    bool IsGameOverFading() const { return gameOverFadeType != 0; }
+    bool IsIntroSplashActive() const { return !assetCheckDone && introPhase != 4; }
+
     // PSX: PlayMovie__4GamePcii (GAME.CPP:3309, 0x8002BBF0)
     void PlayMovie(const char* name, s32 skippable, s32 unloadLevel);
 
