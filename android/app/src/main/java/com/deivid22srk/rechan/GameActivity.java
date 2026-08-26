@@ -1,6 +1,8 @@
 package com.deivid22srk.rechan;
 
 import android.app.NativeActivity;
+import android.content.Context;
+import android.hardware.input.InputManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.InputDevice;
@@ -23,7 +25,9 @@ import com.deivid22srk.rechan.hud.HudBridge;
  * comes back when the last pad disconnects.
  */
 public class GameActivity extends NativeActivity
-        implements InputDevice.InputDeviceListener {
+        implements InputManager.InputDeviceListener {
+
+    private InputManager inputManager;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -36,7 +40,10 @@ public class GameActivity extends NativeActivity
         // Watch for physical gamepads connecting/disconnecting while the
         // activity lives. Null handler -> callbacks on the main thread
         // (this thread, which has a Looper).
-        InputDevice.registerInputDeviceListener(this, null);
+        inputManager = (InputManager) getSystemService(Context.INPUT_SERVICE);
+        if (inputManager != null) {
+            inputManager.registerInputDeviceListener(this, null);
+        }
         updatePhysicalGamepadState();
     }
 
@@ -50,11 +57,13 @@ public class GameActivity extends NativeActivity
 
     @Override
     protected void onDestroy() {
-        InputDevice.unregisterInputDeviceListener(this);
+        if (inputManager != null) {
+            inputManager.unregisterInputDeviceListener(this);
+        }
         super.onDestroy();
     }
 
-    // --- InputDevice.InputDeviceListener ---
+    // --- InputManager.InputDeviceListener ---
 
     @Override
     public void onInputDeviceAdded(int deviceId) {
