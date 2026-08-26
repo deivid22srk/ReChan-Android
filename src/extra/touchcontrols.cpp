@@ -46,6 +46,54 @@ static constexpr int32_t kControlCount = sizeof(kControls) / sizeof(kControls[0]
 static constexpr int32_t kJoyIdx = 0;
 
 // ---------------------------------------------------------------------------
+// Visual style — dark translucent fills + light outlines so the white labels
+// stay readable on top of the game frame. Matches the look of common mobile
+// touch overlays (PPSSPP / AetherSX2 style) and avoids the previous issue
+// where the white "Pular" / A / B / X / Y labels were camouflaged against a
+// white circle background and looked like they were rendered behind.
+// ---------------------------------------------------------------------------
+
+struct TouchColor {
+    u8 r, g, b, a;
+};
+
+static constexpr TouchColor kFill         = {  30,  30,  46, 175 }; // dark blue-gray, semi-transparent
+static constexpr TouchColor kFillPressed  = {  60,  60,  90, 220 }; // brighter when held
+static constexpr TouchColor kRing          = { 220, 220, 230, 230 }; // light outline
+static constexpr TouchColor kRingJoystick  = { 200, 200, 215, 200 };
+static constexpr TouchColor kKnob          = { 235, 235, 245, 230 };
+static constexpr TouchColor kText          = { 255, 255, 255, 255 };
+static constexpr TouchColor kSkipFill      = {  30,  30,  46, 200 };
+static constexpr TouchColor kSkipRing      = { 220, 220, 230, 235 };
+static constexpr TouchColor kSkipText      = { 255, 255, 255, 255 };
+
+// Scale a color's alpha channel by the current HUD fade.
+static inline u8 FadeAlpha(u8 a, float fade) {
+    const int v = static_cast<int>(a) * static_cast<int>(fade * 255.0f + 0.5f) / 255;
+    return static_cast<u8>(std::min(255, std::max(0, v)));
+}
+
+// Thin wrappers that pass all positional args to ScreenDraw's circle helpers
+// so the color lands in the (r,g,b,a) tail, not in the UV slots. The previous
+// code called DrawFilledCircle(x, y, r, r, R, G, B, A) — those trailing 4
+// args matched u0/v0/u1/v1, leaving the color at its default (255,255,255,255),
+// which is why the "Pular" / A / B / X / Y labels were camouflaged against an
+// opaque white circle and looked like they were rendered behind the button.
+static inline void FillCircle(float x, float y, float rx, float ry,
+                             const TouchColor& c) {
+    ScreenDraw::DrawFilledCircle(x, y, rx, ry,
+                                 0.0f, 0.0f, 1.0f, 1.0f, 32,
+                                 c.r, c.g, c.b, c.a);
+}
+
+static inline void RingCircle(float x, float y, float rx, float ry,
+                              float thickness, const TouchColor& c) {
+    ScreenDraw::DrawCircle(x, y, rx, ry, thickness,
+                           0.0f, 0.0f, 1.0f, 1.0f, 32,
+                           c.r, c.g, c.b, c.a);
+}
+
+// ---------------------------------------------------------------------------
 // Runtime layout
 // ---------------------------------------------------------------------------
 
@@ -112,10 +160,26 @@ static void ResetAll() {
     }
 }
 
-static bool IsControlInteractive(int32_t ci, bool climbing) {
+// Returns whether a control is part of the visible set for the given context.
+//   - OnFoot   : full controller (joy + A/B/X/Y + LB/RB + Start)
+//   - Climbing : reduced set — joystick + A only
+//   - Menu     : navigation set — joystick (d-pad style) + A (confirm) +
+//                B (back) + Start (pause/title-confirm)
+static bool IsControlInteractive(int32_t ci, HudContext ctx) {
     if (ci == kJoyIdx) return true;
-    if (!climbing) return true;
-    return std::strcmp(kControls[ci].id, "A") == 0;
+
+    switch (ctx) {
+        case HudContext::OnFoot:
+            return true;
+        case HudContext::Climbing:
+            return std::strcmp(kControls[ci].id, "A") == 0;
+        case HudContext::Menu:
+            return std::strcmp(kControls[ci].id, "A") == 0
+                || std::strcmp(kControls[ci].id, "B") == 0
+                || std::strcmp(kControls[ci].id, "ST") == 0;
+        default:
+            return false;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -126,7 +190,9 @@ void Update() {
     RecomputeLayout();
 
     const HudContext ctx = touchhud::GetContext();
-    const bool wantVisible = (ctx == HudContext::OnFoot || ctx == HudContext::Climbing);
+    const bool wantVisible = (ctx == HudContext::OnFoot
+                              || ctx == HudContext::Climbing
+                              || ctx == HudContext::Menu);
     if (wantVisible && !s_visible) {
         ResetAll();
     }
@@ -148,8 +214,6 @@ void Update() {
 
     androidbridge::TouchPoint pts[androidbridge::kMaxTouchPoints];
     const int32_t ptCount = androidbridge::LoadTouchPoints(pts, androidbridge::kMaxTouchPoints);
-
-    const bool climbing = (ctx == HudContext::Climbing);
 
     // 1) Release any button whose touch slot is gone.
     for (int32_t ci = 0; ci < kControlCount; ++ci) {
@@ -205,7 +269,7 @@ void Update() {
 
         // Hit-test a new control.
         const int32_t hit = FindControlAt(pts[pi].x, pts[pi].y);
-        if (hit < 0 || !IsControlInteractive(hit, climbing)) continue;
+        if (hit < 0 || !IsControlInteractive(hit, ctx)) continue;
 
         if (kControls[hit].buttonId >= 0) {
             s_btnDown[hit] = true;
@@ -239,24 +303,25 @@ void Render() {
     RecomputeLayout();
 
     ScreenDraw::Batch batch;
-    const u8 baseA = static_cast<u8>(s_alpha * 170.0f);
-    const u8 fillA = static_cast<u8>(s_alpha * 110.0f);
-    const u8 knobA = static_cast<u8>(s_alpha * 230.0f);
     const f32 w = SCREEN_WIDTH;
     const f32 h = SCREEN_HEIGHT;
     const f32 base = std::min(w, h);
 
-    const bool climbing = (touchhud::GetContext() == HudContext::Climbing);
+    const HudContext ctx = touchhud::GetContext();
 
     TextManager* tm = g_textManager;
     if (tm) {
         tm->SetFontByName("Menu");
-        tm->SetColor(255, 255, 255, 255);
+        tm->SetColor(kText.r, kText.g, kText.b, kText.a);
         tm->SetPromptsEnabled(true);
     }
 
+    // Pass 1: draw every visible control's background (filled circle + ring
+    // + joystick knob). Drawing all circles first avoids per-button texture
+    // flushes breaking the per-control draw order, and gives the text pass a
+    // clean slate to render on top of.
     for (int32_t i = 0; i < kControlCount; ++i) {
-        if (!IsControlInteractive(i, climbing)) continue;
+        if (!IsControlInteractive(i, ctx)) continue;
 
         const float x = s_cx[i];
         const float y = s_cy[i];
@@ -264,25 +329,48 @@ void Render() {
 
         if (kControls[i].buttonId >= 0) {
             const bool pressed = s_btnDown[i];
-            ScreenDraw::DrawFilledCircle(x, y, r, r, 255, 255, 255,
-                                         pressed ? (u8)(fillA + 90) : fillA);
-            ScreenDraw::DrawCircle(x, y, r, r, std::max(2.0f, r * 0.06f), 255, 255, 255, baseA);
-            if (tm) {
-                // Center the label on the button, matching the menu's text pattern.
-                tm->SetAlignment(TextAlign_Center);
-                const f32 textScale = (r * 1.4f) / 48.0f;
-                tm->SetScale(SCREEN_SCALE_Y(textScale), SCREEN_SCALE_Y(textScale));
-                const TextBounds b = tm->MeasureString(kControls[i].label);
-                tm->PrintString(kControls[i].label, x, y - b.height / 2.0f);
-            }
+            TouchColor fill = pressed ? kFillPressed : kFill;
+            fill.a = FadeAlpha(fill.a, s_alpha);
+            TouchColor ring = kRing;
+            ring.a = FadeAlpha(ring.a, s_alpha);
+            FillCircle(x, y, r, r, fill);
+            RingCircle(x, y, r, r, std::max(2.0f, r * 0.06f), ring);
         }
         else {
             // Joystick base + knob
-            ScreenDraw::DrawFilledCircle(x, y, r, r, 255, 255, 255, baseA);
-            ScreenDraw::DrawCircle(x, y, r, r, std::max(2.0f, r * 0.04f), 255, 255, 255, 200);
+            TouchColor fill = kFill;
+            fill.a = FadeAlpha(fill.a, s_alpha);
+            TouchColor ring = kRingJoystick;
+            ring.a = FadeAlpha(ring.a, s_alpha);
+            TouchColor knob = kKnob;
+            knob.a = FadeAlpha(knob.a, s_alpha);
+
+            FillCircle(x, y, r, r, fill);
+            RingCircle(x, y, r, r, std::max(2.0f, r * 0.04f), ring);
             const float knobR = r * 0.45f;
-            ScreenDraw::DrawFilledCircle(x + s_knobX * r, y + s_knobY * r,
-                                         knobR, knobR, 255, 255, 255, knobA);
+            FillCircle(x + s_knobX * r, y + s_knobY * r, knobR, knobR, knob);
+        }
+    }
+
+    // Pass 2: render labels on top of the circles. The text backend uses a
+    // different texture (the font atlas), which causes the pending circle
+    // batch to flush before the glyphs queue — so labels always land on top
+    // of their corresponding button.
+    if (tm) {
+        for (int32_t i = 0; i < kControlCount; ++i) {
+            if (!IsControlInteractive(i, ctx)) continue;
+            if (kControls[i].buttonId < 0) continue;
+            if (!kControls[i].label || kControls[i].label[0] == '\0') continue;
+
+            const float x = s_cx[i];
+            const float y = s_cy[i];
+            const float r = kControls[i].nr * base;
+
+            tm->SetAlignment(TextAlign_Center);
+            const f32 textScale = (r * 1.4f) / 48.0f;
+            tm->SetScale(SCREEN_SCALE_Y(textScale), SCREEN_SCALE_Y(textScale));
+            const TextBounds b = tm->MeasureString(kControls[i].label);
+            tm->PrintString(kControls[i].label, x, y - b.height / 2.0f);
         }
     }
 }
@@ -330,12 +418,19 @@ void RenderMovieSkip() {
     const float skipY = SCREEN_HEIGHT * 0.05f;
     const float r = std::min(SCREEN_WIDTH, SCREEN_HEIGHT) * 0.055f;
 
-    ScreenDraw::DrawFilledCircle(skipX, skipY, r, r, 255, 255, 255, 170);
-    ScreenDraw::DrawCircle(skipX, skipY, r, r, std::max(2.0f, r * 0.06f), 255, 255, 255, 210);
+    // Pass 1: dark filled circle + light ring on top of the movie frame.
+    // Uses the corrected color path: alpha lands in the color channel, not
+    // in the UV slot, so the "Pular" label can be read on top of the circle.
+    FillCircle(skipX, skipY, r, r, kSkipFill);
+    RingCircle(skipX, skipY, r, r, std::max(2.0f, r * 0.06f), kSkipRing);
 
+    // Pass 2: "Pular" label on top of the circle. The text backend uses the
+    // font atlas texture, which forces the pending circle batch to flush
+    // before the glyphs are queued — so the label is guaranteed to render
+    // on top of the dark fill, not behind it.
     if (g_textManager) {
         g_textManager->SetFontByName("Menu");
-        g_textManager->SetColor(255, 255, 255, 255);
+        g_textManager->SetColor(kSkipText.r, kSkipText.g, kSkipText.b, kSkipText.a);
         g_textManager->SetPromptsEnabled(true);
         g_textManager->SetAlignment(TextAlign_Center);
         const f32 textScale = (r * 1.6f) / 48.0f;
