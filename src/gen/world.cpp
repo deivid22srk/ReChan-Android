@@ -111,7 +111,11 @@ static void PsxToRGBA(u16 c, u8& r, u8& g, u8& b, u8& a) {
     r = static_cast<u8>((r5 << 3) | (r5 >> 2));
     g = static_cast<u8>((g5 << 3) | (g5 >> 2));
     b = static_cast<u8>((b5 << 3) | (b5 >> 2));
-    a = (c == 0) ? 0 : 255;
+    // PSX SetTransparentTim (LOADERS.CPP:460) rewrote the magenta key colour to
+    // 0x0000 at texture-load time, making the GPU skip those texels. Key 0x7C1F
+    // (magenta, either STP bit) here so decoded VRAM pages (BackG sprites)
+    // match the hardware behaviour.
+    a = (c == 0 || (c & 0x7FFF) == 0x7C1F) ? 0 : 255;
 }
 
 void PsxVRAM::DecodePage(u16 tpage, u16 cba, u8* out) const {

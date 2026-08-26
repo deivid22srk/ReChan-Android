@@ -7,6 +7,15 @@ inline u32 PsxAbgr1555ToRgba8888(u16 color) {
         return 0;
     }
 
+    // PSX SetTransparentTim (LOADERS.CPP:460) rewrote the magenta key colour in
+    // texture CLUTs to 0x0000 at load time so the GPU skipped those texels in
+    // every draw mode. This port uploads raw CLUTs, so key 0x7C1F (magenta,
+    // either STP bit) here to reproduce the hardware behaviour. This covers
+    // CELL images (HUD/FE sprites), TIM images and bitmap font palettes.
+    if ((color & 0x7FFF) == 0x7C1F) {
+        return 0;
+    }
+
     const u32 r5 = color & 0x1F;
     const u32 g5 = (color >> 5) & 0x1F;
     const u32 b5 = (color >> 10) & 0x1F;
