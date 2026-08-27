@@ -49,6 +49,17 @@ public final class HudBridge {
      */
     public static native void nativeSetPhysicalGamepad(boolean connected);
 
+    /**
+     * Device ids of "ghost" input devices that must never be treated as
+     * gamepads: Xiaomi/MIUI exposes its fingerprint reader (uinput-fpc,
+     * uinput-goodix, uinput-synaptics, ...) with SOURCE_GAMEPAD|
+     * SOURCE_JOYSTICK sources while isVirtual() reports false. The engine
+     * swallows events from these ids so they can neither confirm
+     * physical-pad presence nor inject phantom buttons/axes (fingerprint
+     * swipe gestures would otherwise drive the virtual stick).
+     */
+    public static native void nativeSetGhostPadDeviceIds(int[] deviceIds);
+
     /** Current gameplay context (touchhud::HudContext). */
     public static native int nativePollContext();
 }

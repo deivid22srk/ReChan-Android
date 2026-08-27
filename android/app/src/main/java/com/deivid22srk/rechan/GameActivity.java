@@ -5,10 +5,14 @@ import android.content.Context;
 import android.hardware.input.InputManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.InputDevice;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
+
+import java.util.ArrayList;
+import java.util.List;
 
 import com.deivid22srk.rechan.hud.HudBridge;
 
@@ -27,7 +31,10 @@ import com.deivid22srk.rechan.hud.HudBridge;
 public class GameActivity extends NativeActivity
         implements InputManager.InputDeviceListener {
 
+    private static final String TAG = "ReChan";
+
     private InputManager inputManager;
+    private Boolean lastPushedPhysicalPad = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -81,48 +88,81 @@ public class GameActivity extends NativeActivity
     }
 
     private void updatePhysicalGamepadState() {
-        HudBridge.nativeSetPhysicalGamepad(hasPhysicalGamepad());
+        boolean physicalPad = false;
+        final List<Integer> ghostIds = new ArrayList<>();
+        // No early return: even after a real pad is found the scan keeps
+        // going so EVERY ghost device id reaches the engine's blacklist.
+        for (int id : InputDevice.getDeviceIds()) {
+            InputDevice device = InputDevice.getDevice(id);
+            if (device == null) continue;
+            if (isGhostInputDevice(device)) {
+                ghostIds.add(id);
+                continue;
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && device.isVirtual()) {
+                continue;
+            }
+            if (isPhysicalGamepadDevice(device)) {
+                physicalPad = true;
+            }
+        }
+        HudBridge.nativeSetPhysicalGamepad(physicalPad);
+        final int[] ghosts = new int[ghostIds.size()];
+        for (int i = 0; i < ghosts.length; i++) ghosts[i] = ghostIds.get(i);
+        HudBridge.nativeSetGhostPadDeviceIds(ghosts);
+        if (lastPushedPhysicalPad == null || lastPushedPhysicalPad != physicalPad) {
+            Log.i(TAG, "physical gamepad "
+                    + (physicalPad ? "connected" : "disconnected")
+                    + " (ghost devices filtered: " + ghosts.length + ")");
+            lastPushedPhysicalPad = physicalPad;
+        }
     }
 
     /**
-     * True while at least one non-virtual input device reports gamepad or
-     * joystick sources (joystick-source devices must really expose stick
-     * axes). Deliberately excludes:
+     * Xiaomi/MIUI exposes fingerprint readers and other sensor hubs through
+     * uinput as input devices that LIE in their sources mask: SOURCE_GAMEPAD
+     * and SOURCE_JOYSTICK are set while isVirtual() reports false. Without
+     * filtering, every Xiaomi/Redmi/POCO phone sees a "physical gamepad" at
+     * boot and the touch HUD never appears. Known ghost names: uinput-fpc,
+     * uinput-goodix, uinput-synaptics, uinput-elan, uinput-vfs,
+     * uinput-atrus (documented across engines: Godot #47656, libgdx #5596,
+     * Unity forums, GameMaker on Redmi). None of them can play the game.
+     */
+    private static boolean isGhostInputDevice(InputDevice device) {
+        final String name = device.getName();
+        if (name == null) return false;
+        final String n = name.trim().toLowerCase();
+        return n.startsWith("uinput-") || n.equals("uinput");
+    }
+
+    /**
+     * True for real, playable pads (Bluetooth/USB). Ghost devices (uinput-*)
+     * and virtual devices must be filtered BEFORE calling this. Also
+     * deliberately excludes:
      *   - keyboards (SOURCE_KEYBOARD) — they can't play;
      *   - DPAD-only TV remotes (SOURCE_DPAD) — no analog stick, no face
      *     buttons; the touch HUD stays useful with them.
      * Same criteria as the (disabled) HudController.isRealGamepad.
      */
-    private static boolean hasPhysicalGamepad() {
-        final int[] ids = InputDevice.getDeviceIds();
-        for (int id : ids) {
-            InputDevice device = InputDevice.getDevice(id);
-            if (device == null) continue;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && device.isVirtual()) {
-                continue;
-            }
-            final int sources = device.getSources();
-            final boolean gamepadSrc =
-                    (sources & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD;
-            final boolean joystickSrc =
-                    (sources & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK;
-            if (!gamepadSrc && !joystickSrc) continue;
-            if (joystickSrc && !gamepadSrc) {
-                // Joystick source without stick axes: some odd devices report
-                // the source bit but expose no ranges — not a playable pad.
-                boolean hasStickAxes = false;
-                for (InputDevice.MotionRange range : device.getMotionRanges()) {
-                    if ((range.getSource() & InputDevice.SOURCE_JOYSTICK)
-                            == InputDevice.SOURCE_JOYSTICK) {
-                        hasStickAxes = true;
-                        break;
-                    }
+    private static boolean isPhysicalGamepadDevice(InputDevice device) {
+        final int sources = device.getSources();
+        final boolean gamepadSrc =
+                (sources & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD;
+        final boolean joystickSrc =
+                (sources & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK;
+        if (!gamepadSrc && !joystickSrc) return false;
+        if (joystickSrc && !gamepadSrc) {
+            // Joystick source without stick axes: some odd devices report
+            // the source bit but expose no ranges — not a playable pad.
+            for (InputDevice.MotionRange range : device.getMotionRanges()) {
+                if ((range.getSource() & InputDevice.SOURCE_JOYSTICK)
+                        == InputDevice.SOURCE_JOYSTICK) {
+                    return true;
                 }
-                if (!hasStickAxes) continue;
             }
-            return true;
+            return false;
         }
-        return false;
+        return true;
     }
 
     // --- Immersive fullscreen ---

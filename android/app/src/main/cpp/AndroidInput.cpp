@@ -226,6 +226,14 @@ bool HandleKeyEvent(AInputEvent* event) {
     const int32_t keyCode = AKeyEvent_getKeyCode(event);
     const bool down = AKeyEvent_getAction(event) == AKEY_EVENT_ACTION_DOWN;
 
+    // Ghost devices (Xiaomi uinput fingerprint readers posing as gamepads,
+    // see AndroidPlatform.h): swallow their events entirely — no phantom
+    // buttons, no pad-presence confirm. The id blacklist is pushed by
+    // GameActivity's InputDevice scan.
+    if (androidbridge::IsGhostPadDeviceId(AInputEvent_getDeviceId(event))) {
+        return true;
+    }
+
     if (IsMenuKey(keyCode)) {
         androidbridge::PostGamepadConnected(true);
         androidbridge::PostGamepadButton(GamepadButton::Start, down);
@@ -270,6 +278,15 @@ bool HandleMotionEvent(AInputEvent* event) {
     // exist while the virtual gamepad was also active.
     if ((source & AINPUT_SOURCE_TOUCHSCREEN) == AINPUT_SOURCE_TOUCHSCREEN) {
         HandleTouchEvent(event);
+        return true;
+    }
+
+    // Ghost devices (Xiaomi uinput fingerprint readers posing as gamepads/
+    // joysticks, see AndroidPlatform.h): swallow — their gesture events
+    // must neither confirm pad presence nor drive the virtual stick
+    // (swipes on the fingerprint sensor would walk the character by
+    // themselves).
+    if (androidbridge::IsGhostPadDeviceId(AInputEvent_getDeviceId(event))) {
         return true;
     }
 

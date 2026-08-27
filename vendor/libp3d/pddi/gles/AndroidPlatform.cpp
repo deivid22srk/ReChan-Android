@@ -24,6 +24,12 @@ std::atomic<bool> g_padConnected{true};
 // InputDevice listener and by native gamepad-sourced events; read once per
 // frame by the game thread.
 std::atomic<bool> g_physicalPadConnected{false};
+// Ghost pad device ids (see AndroidPlatform.h): Xiaomi uinput fingerprint
+// readers posing as gamepads. Written by the Java thread only (ids first,
+// count last with release); read from the input thread.
+constexpr int32_t kMaxGhostPadDevices = 16;
+std::atomic<int32_t> g_ghostPadIds[kMaxGhostPadDevices] = {};
+std::atomic<int32_t> g_ghostPadCount{0};
 std::atomic<uint32_t> g_hudContext{0};
 std::atomic<float> g_touchX{0.0f};
 std::atomic<float> g_touchY{0.0f};
@@ -100,6 +106,30 @@ void SetPhysicalPadConnected(bool connected) {
 
 bool IsPhysicalPadConnected() {
     return g_physicalPadConnected.load(std::memory_order_relaxed);
+}
+
+void SetGhostPadDeviceIds(const int32_t* ids, int32_t count) {
+    if (ids == nullptr) count = 0;
+    if (count > kMaxGhostPadDevices) count = kMaxGhostPadDevices;
+    if (count < 0) count = 0;
+    // Ids first, count last (release): a reader that observes the new count
+    // also observes every id under it; a reader still on the old count may
+    // see stale ids beyond it, which is harmless (those devices are gone
+    // and can no longer send events).
+    for (int32_t i = 0; i < count; ++i) {
+        g_ghostPadIds[i].store(ids[i], std::memory_order_relaxed);
+    }
+    g_ghostPadCount.store(count, std::memory_order_release);
+}
+
+bool IsGhostPadDeviceId(int32_t deviceId) {
+    const int32_t n = g_ghostPadCount.load(std::memory_order_acquire);
+    for (int32_t i = 0; i < n; ++i) {
+        if (g_ghostPadIds[i].load(std::memory_order_relaxed) == deviceId) {
+            return true;
+        }
+    }
+    return false;
 }
 
 PadSnapshot LoadPadSnapshot() {

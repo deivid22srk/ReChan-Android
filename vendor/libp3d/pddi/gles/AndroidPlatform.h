@@ -64,6 +64,23 @@ PadSnapshot LoadPadSnapshot();
 void SetPhysicalPadConnected(bool connected);
 bool IsPhysicalPadConnected();
 
+// --- Ghost pad devices (Java InputDevice scan -> input thread) ---
+// Xiaomi/MIUI exposes fingerprint readers and other sensor hubs through
+// uinput (uinput-fpc, uinput-goodix, uinput-synaptics, uinput-elan,
+// uinput-vfs, uinput-atrus) as input devices whose sources mask LIES:
+// SOURCE_GAMEPAD|SOURCE_JOYSTICK are set while isVirtual() reports false.
+// Without filtering, every Xiaomi/Redmi/POCO phone sees a "physical
+// gamepad" at boot and the touch HUD never appears (documented across
+// engines: Godot #47656, libgdx #5596, Unity forums, GameMaker on Redmi).
+// GameActivity pushes the ghost device ids it finds; AndroidInput.cpp then
+// swallows their events entirely - no phantom pad-presence confirm, no
+// phantom buttons/axes (fingerprint swipe gestures would otherwise drive
+// the virtual stick). Single writer (Java thread): ids are stored first
+// and the count last (release), so readers always observe a consistent
+// prefix.
+void SetGhostPadDeviceIds(const int32_t* ids, int32_t count);
+bool IsGhostPadDeviceId(int32_t deviceId);
+
 // --- Touch HUD context (game thread -> UI thread) ---
 // Published by the game loop each frame; the Java overlay polls it to decide
 // which on-screen controls to show. Values match touchhud::HudContext.

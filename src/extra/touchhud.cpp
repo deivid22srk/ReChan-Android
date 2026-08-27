@@ -233,6 +233,28 @@ Java_com_deivid22srk_rechan_hud_HudBridge_nativeSetPhysicalGamepad(
     androidbridge::SetPhysicalPadConnected(connected == JNI_TRUE);
 }
 
+JNIEXPORT void JNICALL
+Java_com_deivid22srk_rechan_hud_HudBridge_nativeSetGhostPadDeviceIds(
+    JNIEnv* env, jclass, jintArray ids) {
+    // Device ids of "ghost" pads (Xiaomi uinput fingerprint readers that
+    // report SOURCE_GAMEPAD|SOURCE_JOYSTICK while isVirtual() is false).
+    // AndroidInput.cpp swallows their events so they can neither confirm
+    // physical-pad presence nor inject phantom buttons/axes.
+    if (env == nullptr || ids == nullptr) {
+        androidbridge::SetGhostPadDeviceIds(nullptr, 0);
+        return;
+    }
+    const jsize n = env->GetArrayLength(ids);
+    if (n <= 0) {
+        androidbridge::SetGhostPadDeviceIds(nullptr, 0);
+        return;
+    }
+    jint buf[16];
+    const jsize count = n < 16 ? n : 16;
+    env->GetIntArrayRegion(ids, 0, count, buf);
+    androidbridge::SetGhostPadDeviceIds(buf, count);
+}
+
 } // extern "C"
 
 #endif // RC_PLATFORM_ANDROID
