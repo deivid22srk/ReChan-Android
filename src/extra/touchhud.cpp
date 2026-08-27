@@ -43,15 +43,30 @@ bool IsClimbState(s32 actionState) {
 }
 
 HudContext ComputeContext() {
-    // Custom menu overlays (asset setup, pause, title/FE menus): the generic
-    // list pages are fully touch-operable (direct entry taps + "< value >"
-    // steppers), so the on-screen pad there is redundant clutter - hide it.
-    // Only the pages that cannot be driven by taps (scrolling lists, slot
-    // tables, key-binding grid) keep the d-pad navigation set.
+    // Custom menu overlays (asset setup, pause, title/FE menus, destination
+    // select): the generic list pages are fully touch-operable (direct entry
+    // taps + "< value >" steppers), so the on-screen pad there is redundant
+    // clutter - hide it. Only the pages that cannot be driven by taps
+    // (scrolling lists, slot tables, key-binding grid) keep the d-pad
+    // navigation set.
+    //
+    // The menu's active flag is only meaningful in the states that actually
+    // Invoke() it (Intro's gates, TitleLoop's FE menu, Menu pause,
+    // LocationMenu destination select). A menu that is "active" in any other
+    // state is stale bookkeeping riding along from a transition - treating it
+    // as a real overlay would pin the context to Hidden and leave a
+    // touch-only player without the virtual joystick for the whole level.
     if (g_feCustomMenuMgr && g_feCustomMenuMgr->IsActive()) {
-        return g_feCustomMenuMgr->NeedsVirtualPadNavigation()
-            ? HudContext::Menu
-            : HudContext::Hidden;
+        const GameState menuState = g_game ? g_game->GetState() : GameState::Null;
+        const bool menuInvokedHere = menuState == GameState::Intro
+            || menuState == GameState::TitleLoop
+            || menuState == GameState::Menu
+            || menuState == GameState::LocationMenu;
+        if (menuInvokedHere) {
+            return g_feCustomMenuMgr->NeedsVirtualPadNavigation()
+                ? HudContext::Menu
+                : HudContext::Hidden;
+        }
     }
 
     if (!g_game) {

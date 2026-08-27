@@ -1362,10 +1362,15 @@ bool Game::gsOpenFEState(Game* game) {
         game->SetState(GameState::QueueLevelLoad);
     }
     else {
-#if CUSTOM_MENU
-        g_feCustomMenuMgr->Activate();
-#endif
         // No level selected - show FE menu
+        // NOTE: intentionally does NOT Activate() the custom menu here. This
+        // state immediately hands off to FE -> OpenLocationMenu ->
+        // QueueLevelLoad -> PrePlay -> Play, and none of those states Invoke()
+        // the custom menu (its only Invoke sites are Intro/TitleLoop/Menu/
+        // LocationMenu). A menu left "active" from here would ride along into
+        // Play as stale bookkeeping and keep the contextual touch HUD (and the
+        // virtual joystick) hidden for the whole hub visit - exactly what
+        // happened to fresh-save players on touch-only devices.
         game->SetState(GameState::FE);
     }
     return true;

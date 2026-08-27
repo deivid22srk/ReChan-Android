@@ -1266,6 +1266,35 @@ void feCustomMenuMgr::ProcessTouchTaps() {
         const s32 baseValueX = panelX + page.frameW - DEF_VALUE_X_PAD;
         const s32 baseCenterX = DEF_WINDOW_CENTER_X;
 
+        if (m_currPage == MenuPage_Location) {
+            // Destination select: a fully custom-drawn page (grade box, dragon
+            // grid, A/B prompt row) whose only entry is an invisible Confirm
+            // button. The generic auto-layout hit band for that entry is a
+            // thin strip in the middle of the panel with no visual cue, so
+            // touch players read the screen as dead (fresh-run players got
+            // stuck here: the virtual pad is hidden on this page and there is
+            // no apparent tap target). Treat the whole panel as one big
+            // Select button, and let the bottom prompt row work as drawn:
+            // tapping its right half (where the "B Back" prompt sits) backs
+            // out to the hub instead of selecting.
+            const bool inPanelX = psxX >= (f32)panelX && psxX < (f32)(panelX + page.frameW);
+            const bool inPanelY = psxY >= (f32)panelY && psxY < (f32)(panelY + page.frameH);
+            if (inPanelX && inPanelY) {
+                const bool backTap = psxY >= (f32)(panelY + page.frameH - DEF_BOTTOM_BAR_H)
+                    && psxX >= (f32)(panelX + page.frameW / 2);
+                PlaySound(FE_SND_MENU_5);
+                if (backTap) {
+                    GoBack();
+                }
+                else {
+                    Confirm();
+                }
+                LOG("[MenuTouch] tap page=%d psx=(%.1f,%.1f) -> location %s",
+                    (s32)m_currPage, psxX, psxY, backTap ? "back" : "select");
+            }
+            continue;
+        }
+
         if (psxX >= (f32)panelX && psxX < (f32)(panelX + page.frameW)) {
             for (s32 i = 0; i < page.numEntries; i++) {
                 s32 rowTop = 0;
