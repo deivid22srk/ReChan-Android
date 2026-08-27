@@ -1,5 +1,6 @@
 #include "gen/common.h"
 #include "fecustommenumgr.h"
+#include <algorithm>
 #include <cstdlib>
 #include "gen/display.h"
 #include "pc/inputaction.h"
@@ -1235,11 +1236,46 @@ void feCustomMenuMgr::ProcessTouchTaps() {
                 const s32 rowH = DEF_ROW_STEP + GetEntryExtraHeight(page, page.entries[i]);
                 if (psxY >= (f32)rowTop && psxY < (f32)(rowTop + rowH)) {
                     if (page.entries[i].type != EntryType_Info) {
-                        LOG("[MenuTouch] tap page=%d entry=%d psx=(%.1f,%.1f) -> confirm",
-                            (s32)m_currPage, i, psxX, psxY);
-                        m_cursor = i;
-                        PlaySound(FE_SND_MENU_5);
-                        Confirm();
+                        // Adjustable rows render "< value >" steppers: a tap on
+                        // an arrow steps the value instead of confirming, so
+                        // touch users can change List/Slider/Toggle settings
+                        // without the virtual D-pad.
+                        const TouchStepperZone* zone = FindTouchStepperZone(i);
+                        s32 adjustDir = 0;
+                        if (zone) {
+                            if (tapX >= zone->leftMidX - zone->grabHalfW
+                                && tapX <= zone->leftMidX + zone->grabHalfW) {
+                                adjustDir = -1;
+                            }
+                            else if (tapX >= zone->rightMidX - zone->grabHalfW
+                                     && tapX <= zone->rightMidX + zone->grabHalfW) {
+                                adjustDir = 1;
+                            }
+                        }
+
+                        if (i != m_cursor) {
+                            // Leaving a (possibly staged) row: same cleanup
+                            // MoveCursor() performs for pad/keyboard navigation.
+                            ClearPendingDisplayStaging();
+                        }
+
+                        if (adjustDir != 0) {
+                            m_cursor = i;
+                            const s32 prevVal = GetBoundValue(page.entries[i]);
+                            Adjust(adjustDir);
+                            if (prevVal != GetBoundValue(page.entries[i])) {
+                                PlayValueChangeFeedback(page.entries[i]);
+                            }
+                            LOG("[MenuTouch] tap page=%d entry=%d psx=(%.1f,%.1f) -> adjust %d",
+                                (s32)m_currPage, i, psxX, psxY, adjustDir);
+                        }
+                        else {
+                            LOG("[MenuTouch] tap page=%d entry=%d psx=(%.1f,%.1f) -> confirm",
+                                (s32)m_currPage, i, psxX, psxY);
+                            m_cursor = i;
+                            PlaySound(FE_SND_MENU_5);
+                            Confirm();
+                        }
                     }
                     break;
                 }
@@ -2298,6 +2334,9 @@ void feCustomMenuMgr::SetPage(MenuPage page) {
     m_scrollBarDragging = false;
     m_keyBindCaptureActive = false;
     m_keyBindCaptureBlockFrames = 0;
+    // Arrow tap zones belong to the previous page's layout; invalidate them
+    // until the next RenderCurrentPage() re-records the new page's rows.
+    ClearTouchStepperZones();
 
     if (m_currPage == MenuPage_Title) {
         if (SaveGameHasAutosave()) {
@@ -4311,6 +4350,138 @@ static void DrawSliderCircleMeterPSX(s32 rightX, s32 textY, s32 value, tTexture*
     DrawSliderCircleMeterPSX((f32)rightX, (f32)textY, (f32)value, sliderOTex, sliderFTex);
 }
 
+// --- Android touch steppers ("< value >") ---------------------------------
+// Adjustable menu rows (List/Slider/Toggle) are useless to a touch player
+// without the virtual D-pad: tapping the row runs Confirm(), which is a no-op
+// for most List bindings. These helpers flank the rendered value with "<" and
+// ">" arrows and record each arrow's screen-pixel tap zone so
+// ProcessTouchTaps() can step the value when the arrow itself is tapped.
+// Note: '<' only starts a prompt token when followed by a known "<ACT:...>"
+// pattern, so "< 30 >" renders as literal glyphs (Basic Latin range).
+void feCustomMenuMgr::RecordTouchStepperZone(s32 entryIndex, f32 leftMidX, f32 rightMidX, f32 grabHalfW) {
+    if (entryIndex < 0 || entryIndex >= MAX_ENTRIES_PER_MENU) {
+        return;
+    }
+    for (s32 i = 0; i < m_touchStepperZoneCount; i++) {
+        if (m_touchStepperZones[i].entryIndex == entryIndex) {
+            m_touchStepperZones[i].leftMidX = leftMidX;
+            m_touchStepperZones[i].rightMidX = rightMidX;
+            m_touchStepperZones[i].grabHalfW = grabHalfW;
+            return;
+        }
+    }
+    if (m_touchStepperZoneCount >= MAX_ENTRIES_PER_MENU) {
+        return;
+    }
+    m_touchStepperZones[m_touchStepperZoneCount].entryIndex = entryIndex;
+    m_touchStepperZones[m_touchStepperZoneCount].leftMidX = leftMidX;
+    m_touchStepperZones[m_touchStepperZoneCount].rightMidX = rightMidX;
+    m_touchStepperZones[m_touchStepperZoneCount].grabHalfW = grabHalfW;
+    m_touchStepperZoneCount++;
+}
+
+const feCustomMenuMgr::TouchStepperZone* feCustomMenuMgr::FindTouchStepperZone(s32 entryIndex) const {
+    for (s32 i = 0; i < m_touchStepperZoneCount; i++) {
+        if (m_touchStepperZones[i].entryIndex == entryIndex) {
+            return &m_touchStepperZones[i];
+        }
+    }
+    return nullptr;
+}
+
+void feCustomMenuMgr::ClearPendingDisplayStaging() {
+    m_pendingResolutionActive = false;
+    m_pendingScreenModeActive = false;
+    m_pendingMsaaActive = false;
+}
+
+void feCustomMenuMgr::PrintValueWithTouchSteppers(s32 entryIndex, const char* valueText,
+                                                  f32 valueScreenX, f32 rowScreenY,
+                                                  bool selected,
+                                                  const xcColour1555& selectedColor,
+                                                  const xcColour1555& normalColor) {
+    if (!g_textManager || !valueText) {
+        return;
+    }
+
+    const xcColour1555& color = selected ? selectedColor : normalColor;
+
+#if defined(RC_PLATFORM_ANDROID)
+    char stepperBuf[96];
+    std::snprintf(stepperBuf, sizeof(stepperBuf), "< %s >", valueText);
+
+    g_textManager->SetAlignment(TextAlign_Right);
+    g_textManager->SetColor(color.GetRed8(), color.GetGreen8(), color.GetBlue8());
+    g_textManager->PrintString(stepperBuf, valueScreenX, rowScreenY);
+
+    // Record tap zones for the arrows. The string is right-aligned at
+    // valueScreenX, so the '<' sits at the far left of the measured block and
+    // the '>' ends exactly at valueScreenX. Widths come back in screen pixels
+    // (they include the text manager's current scale).
+    const TextBounds total = g_textManager->MeasureString(stepperBuf);
+    if (total.width > 0.0f) {
+        const TextBounds leftArrow = g_textManager->MeasureString("<");
+        const TextBounds rightArrow = g_textManager->MeasureString(">");
+        const f32 leftMidX = valueScreenX - total.width + leftArrow.width * 0.5f;
+        const f32 rightMidX = valueScreenX - rightArrow.width * 0.5f;
+        const f32 arrowW = std::max(leftArrow.width, rightArrow.width);
+        const f32 grabHalfW = std::max(arrowW * 0.75f, 20.0f);
+        RecordTouchStepperZone(entryIndex, leftMidX, rightMidX, grabHalfW);
+    }
+#else
+    (void)entryIndex;
+    g_textManager->SetAlignment(TextAlign_Right);
+    g_textManager->SetColor(color.GetRed8(), color.GetGreen8(), color.GetBlue8());
+    g_textManager->PrintString(valueText, valueScreenX, rowScreenY);
+#endif
+}
+
+void feCustomMenuMgr::DrawSliderTouchSteppers(s32 entryIndex, f32 rightX, f32 textY, f32 value,
+                                              bool selected,
+                                              const xcColour1555& selectedColor,
+                                              const xcColour1555& normalColor) {
+    // The meter itself is drawn on every platform with unchanged geometry
+    // (DrawSliderCircleMeterPSX is a file-static defined above). On Android
+    // the meter is additionally flanked by "<" ">" stepper arrows.
+    DrawSliderCircleMeterPSX(rightX, textY, value, m_sliderOTex, m_sliderFTex);
+
+#if defined(RC_PLATFORM_ANDROID)
+    if (!g_textManager) {
+        return;
+    }
+
+    // Meter occupies [rightX - segments*step, rightX - 6] in PSX pixels;
+    // flank it with '<' and '>' arrows (same font/scale as row labels).
+    const f32 meterLeftX = rightX
+        - (f32)DEF_SLIDER_CIRCLE_SEGMENTS * (f32)DEF_SLIDER_CIRCLE_STEP;
+    const f32 leftEdgeX = SCALE_AND_CENTER_X(meterLeftX - 5.0f);
+    const f32 rightStartX = SCALE_AND_CENTER_X(rightX - 2.0f);
+    const f32 arrowScreenY = SCREEN_SCALE_Y(textY);
+    const xcColour1555& color = selected ? selectedColor : normalColor;
+
+    g_textManager->SetAlignment(TextAlign_Right);
+    g_textManager->SetColor(color.GetRed8(), color.GetGreen8(), color.GetBlue8());
+    g_textManager->PrintString("<", leftEdgeX, arrowScreenY);
+
+    g_textManager->SetAlignment(TextAlign_Left);
+    g_textManager->PrintString(">", rightStartX, arrowScreenY);
+
+    const TextBounds leftArrow = g_textManager->MeasureString("<");
+    const TextBounds rightArrow = g_textManager->MeasureString(">");
+    const f32 leftMidX = leftEdgeX - leftArrow.width * 0.5f;
+    const f32 rightMidX = rightStartX + rightArrow.width * 0.5f;
+    const f32 arrowW = std::max(leftArrow.width, rightArrow.width);
+    const f32 grabHalfW = std::max(arrowW * 0.75f, 20.0f);
+    RecordTouchStepperZone(entryIndex, leftMidX, rightMidX, grabHalfW);
+#else
+    (void)entryIndex;
+    (void)selected;
+    (void)selectedColor;
+    (void)normalColor;
+#endif
+}
+// --- end Android touch steppers -------------------------------------------
+
 static void DrawUniformBorderRectPSX(f32 x, f32 y, f32 w, f32 h, f32 borderPx,
                                      u8 r, u8 g, u8 b, u8 a) {
     if (w <= 0 || h <= 0 || borderPx <= 0.0f)
@@ -5217,6 +5388,10 @@ void feCustomMenuMgr::RenderCurrentPage() {
         && m_currPage != MenuPage_Changelog
 #endif
         ) {
+        // Adjustable rows re-record their "< value >" arrow tap zones below;
+        // start every frame from a clean slate so entries that stopped
+        // rendering (or pages whose rows shifted) can't keep stale zones.
+        ClearTouchStepperZones();
         for (s32 i = 0; i < page->numEntries; i++) {
             const Entry& item = page->entries[i];
             const bool selected = (i == m_cursor);
@@ -5294,11 +5469,8 @@ void feCustomMenuMgr::RenderCurrentPage() {
                         continue;
                     }
 
-                    g_textManager->SetAlignment(TextAlign_Right);
-                    g_textManager->SetColor(selected ? selectedColor.GetRed8() : normalColor.GetRed8(),
-                                            selected ? selectedColor.GetGreen8() : normalColor.GetGreen8(),
-                                            selected ? selectedColor.GetBlue8() : normalColor.GetBlue8());
-                    g_textManager->PrintString(resText, valueScreenX, rowScreenY);
+                    PrintValueWithTouchSteppers(i, resText, valueScreenX, rowScreenY,
+                                                selected, selectedColor, normalColor);
                 }
                 else if (item.binding == EntryBinding_DisplayScreenMode) {
                     s32 mode = GetBoundValue(item);
@@ -5313,11 +5485,8 @@ void feCustomMenuMgr::RenderCurrentPage() {
                         modeText = Localize("FE_SCW");
                     }
 
-                    g_textManager->SetAlignment(TextAlign_Right);
-                    g_textManager->SetColor(selected ? selectedColor.GetRed8() : normalColor.GetRed8(),
-                                            selected ? selectedColor.GetGreen8() : normalColor.GetGreen8(),
-                                            selected ? selectedColor.GetBlue8() : normalColor.GetBlue8());
-                    g_textManager->PrintString(modeText, valueScreenX, rowScreenY);
+                    PrintValueWithTouchSteppers(i, modeText, valueScreenX, rowScreenY,
+                                                selected, selectedColor, normalColor);
                 }
                 else if (item.binding == EntryBinding_DisplayMsaa) {
                     s32 msaaIndex = GetBoundValue(item);
@@ -5334,11 +5503,8 @@ void feCustomMenuMgr::RenderCurrentPage() {
                         continue;
                     }
 
-                    g_textManager->SetAlignment(TextAlign_Right);
-                    g_textManager->SetColor(selected ? selectedColor.GetRed8() : normalColor.GetRed8(),
-                                            selected ? selectedColor.GetGreen8() : normalColor.GetGreen8(),
-                                            selected ? selectedColor.GetBlue8() : normalColor.GetBlue8());
-                    g_textManager->PrintString(msaaText, valueScreenX, rowScreenY);
+                    PrintValueWithTouchSteppers(i, msaaText, valueScreenX, rowScreenY,
+                                                selected, selectedColor, normalColor);
                 }
 #if MODERN_GRAPHICS
                 else if (item.binding == EntryBinding_DisplayShadowQuality) {
@@ -5354,11 +5520,8 @@ void feCustomMenuMgr::RenderCurrentPage() {
                         continue;
                     }
 
-                    g_textManager->SetAlignment(TextAlign_Right);
-                    g_textManager->SetColor(selected ? selectedColor.GetRed8() : normalColor.GetRed8(),
-                                            selected ? selectedColor.GetGreen8() : normalColor.GetGreen8(),
-                                            selected ? selectedColor.GetBlue8() : normalColor.GetBlue8());
-                    g_textManager->PrintString(qualityText, valueScreenX, rowScreenY);
+                    PrintValueWithTouchSteppers(i, qualityText, valueScreenX, rowScreenY,
+                                                selected, selectedColor, normalColor);
                 }
 #endif
                 else if (item.binding == EntryBinding_DisplayFrameRate) {
@@ -5369,11 +5532,8 @@ void feCustomMenuMgr::RenderCurrentPage() {
                         continue;
                     }
 
-                    g_textManager->SetAlignment(TextAlign_Right);
-                    g_textManager->SetColor(selected ? selectedColor.GetRed8() : normalColor.GetRed8(),
-                                            selected ? selectedColor.GetGreen8() : normalColor.GetGreen8(),
-                                            selected ? selectedColor.GetBlue8() : normalColor.GetBlue8());
-                    g_textManager->PrintString(frameRateText, valueScreenX, rowScreenY);
+                    PrintValueWithTouchSteppers(i, frameRateText, valueScreenX, rowScreenY,
+                                                selected, selectedColor, normalColor);
                 }
                 else if (item.binding == EntryBinding_ControllerPromptStyle) {
                     const s32 style = ClampControllerPromptStyle(GetBoundValue(item));
@@ -5383,11 +5543,8 @@ void feCustomMenuMgr::RenderCurrentPage() {
                         continue;
                     }
 
-                    g_textManager->SetAlignment(TextAlign_Right);
-                    g_textManager->SetColor(selected ? selectedColor.GetRed8() : normalColor.GetRed8(),
-                                            selected ? selectedColor.GetGreen8() : normalColor.GetGreen8(),
-                                            selected ? selectedColor.GetBlue8() : normalColor.GetBlue8());
-                    g_textManager->PrintString(styleText, valueScreenX, rowScreenY);
+                    PrintValueWithTouchSteppers(i, styleText, valueScreenX, rowScreenY,
+                                                selected, selectedColor, normalColor);
                 }
                 else if (item.binding == EntryBinding_PlayerConfig) {
                     const s32 cfg = GetBoundValue(item);
@@ -5400,11 +5557,8 @@ void feCustomMenuMgr::RenderCurrentPage() {
                         continue;
                     }
 
-                    g_textManager->SetAlignment(TextAlign_Right);
-                    g_textManager->SetColor(selected ? selectedColor.GetRed8() : normalColor.GetRed8(),
-                                            selected ? selectedColor.GetGreen8() : normalColor.GetGreen8(),
-                                            selected ? selectedColor.GetBlue8() : normalColor.GetBlue8());
-                    g_textManager->PrintString(cfgText, valueScreenX, rowScreenY);
+                    PrintValueWithTouchSteppers(i, cfgText, valueScreenX, rowScreenY,
+                                                selected, selectedColor, normalColor);
                 }
                 else if (item.binding == EntryBinding_Language) {
                     const char* langToken = GetLanguageDisplayToken(GetBoundValue(item));
@@ -5414,11 +5568,8 @@ void feCustomMenuMgr::RenderCurrentPage() {
                         continue;
                     }
 
-                    g_textManager->SetAlignment(TextAlign_Right);
-                    g_textManager->SetColor(selected ? selectedColor.GetRed8() : normalColor.GetRed8(),
-                                            selected ? selectedColor.GetGreen8() : normalColor.GetGreen8(),
-                                            selected ? selectedColor.GetBlue8() : normalColor.GetBlue8());
-                    g_textManager->PrintString(langText, valueScreenX, rowScreenY);
+                    PrintValueWithTouchSteppers(i, langText, valueScreenX, rowScreenY,
+                                                selected, selectedColor, normalColor);
                 }
             }
             else if (item.type == EntryType_Slider && item.binding != EntryBinding_None) {
@@ -5428,12 +5579,14 @@ void feCustomMenuMgr::RenderCurrentPage() {
                                         selected ? selectedColor.GetBlue8() : normalColor.GetBlue8());
                 g_textManager->PrintString(label, labelScreenX, rowScreenY);
 
-                DrawSliderCircleMeterPSX(
-                    rowValueX,
-                    rowY,
-                    GetBoundValue(item),
-                    m_sliderOTex,
-                    m_sliderFTex);
+                DrawSliderTouchSteppers(
+                    i,
+                    (f32)rowValueX,
+                    (f32)rowY,
+                    (f32)GetBoundValue(item),
+                    selected,
+                    selectedColor,
+                    normalColor);
             }
             else if (item.type == EntryType_Toggle && item.binding != EntryBinding_None) {
                 const s32 toggle = GetBoundValue(item);
@@ -5450,11 +5603,8 @@ void feCustomMenuMgr::RenderCurrentPage() {
                                         selected ? selectedColor.GetBlue8() : normalColor.GetBlue8());
                 g_textManager->PrintString(label, labelScreenX, rowScreenY);
 
-                g_textManager->SetAlignment(TextAlign_Right);
-                g_textManager->SetColor(selected ? selectedColor.GetRed8() : normalColor.GetRed8(),
-                                        selected ? selectedColor.GetGreen8() : normalColor.GetGreen8(),
-                                        selected ? selectedColor.GetBlue8() : normalColor.GetBlue8());
-                g_textManager->PrintString(toggleText, valueScreenX, rowScreenY);
+                PrintValueWithTouchSteppers(i, toggleText, valueScreenX, rowScreenY,
+                                            selected, selectedColor, normalColor);
             }
             else {
                 g_textManager->SetAlignment(TextAlign_Center);
