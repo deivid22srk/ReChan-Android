@@ -656,10 +656,6 @@ private:
     bool m_pendingScreenModeActive = false;
     s32 m_pendingScreenMode = 0;
 
-    // MSAA selection is staged while focused and committed on confirm.
-    bool m_pendingMsaaActive = false;
-    s32 m_pendingMsaaIndex = 0;
-
     // Input mode tracking: when false, mouse hover is ignored until mouse moves/clicks.
     bool m_mouseInputActive = true;
     bool m_mousePosInitialized = false;

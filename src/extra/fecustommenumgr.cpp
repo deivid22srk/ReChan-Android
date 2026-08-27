@@ -2267,9 +2267,6 @@ s32 feCustomMenuMgr::Invoke() {
                         if (prev.binding == EntryBinding_DisplayScreenMode) {
                             m_pendingScreenModeActive = false;
                         }
-                        if (prev.binding == EntryBinding_DisplayMsaa) {
-                            m_pendingMsaaActive = false;
-                        }
                         m_cursor = i;
                         PlaySound(FE_SND_MENU_7);
                     }
@@ -2368,7 +2365,6 @@ void feCustomMenuMgr::SetPage(MenuPage page) {
     m_result = 1;
     m_pendingResolutionActive = false;
     m_pendingScreenModeActive = false;
-    m_pendingMsaaActive = false;
     m_scrollBarDragging = false;
     m_keyBindCaptureActive = false;
     m_keyBindCaptureBlockFrames = 0;
@@ -2556,9 +2552,6 @@ void feCustomMenuMgr::MoveCursor(s32 dir) {
         if (prev.binding == EntryBinding_DisplayScreenMode) {
             m_pendingScreenModeActive = false;
         }
-        if (prev.binding == EntryBinding_DisplayMsaa) {
-            m_pendingMsaaActive = false;
-        }
     }
 }
 
@@ -2606,10 +2599,6 @@ void feCustomMenuMgr::Confirm() {
         else if (e->binding == EntryBinding_DisplayScreenMode && m_pendingScreenModeActive) {
             ApplyValue(*e, m_pendingScreenMode);
             m_pendingScreenModeActive = false;
-        }
-        else if (e->binding == EntryBinding_DisplayMsaa && m_pendingMsaaActive) {
-            ApplyValue(*e, m_pendingMsaaIndex);
-            m_pendingMsaaActive = false;
         }
         return;
     }
@@ -2965,10 +2954,15 @@ void feCustomMenuMgr::Adjust(s32 dir) {
         }
 
         if (e->binding == EntryBinding_DisplayMsaa) {
-            const s32 current = m_pendingMsaaActive ? m_pendingMsaaIndex : GetBoundValue(*e);
+            // Applied immediately, like Frame Rate: the GLES backend swaps its
+            // multisample framebuffer on the fly (clamped to what the device
+            // supports, with graceful fallback), so there is nothing risky to
+            // stage. The old staged flow read as "reverting to Off" to touch
+            // users - the value only looked applied while the row stayed
+            // selected, and leaving the row (or backing out) discarded it.
+            const s32 current = GetBoundValue(*e);
             const s32 v = WrapStepValue(current, e->step, e->lo, e->hi, dir);
-            m_pendingMsaaIndex = v;
-            m_pendingMsaaActive = true;
+            ApplyValue(*e, v);
             return;
         }
 
@@ -4430,7 +4424,6 @@ const feCustomMenuMgr::TouchStepperZone* feCustomMenuMgr::FindTouchStepperZone(s
 void feCustomMenuMgr::ClearPendingDisplayStaging() {
     m_pendingResolutionActive = false;
     m_pendingScreenModeActive = false;
-    m_pendingMsaaActive = false;
 }
 
 void feCustomMenuMgr::PrintValueWithTouchSteppers(s32 entryIndex, const char* valueText,
@@ -5527,10 +5520,7 @@ void feCustomMenuMgr::RenderCurrentPage() {
                                                 selected, selectedColor, normalColor);
                 }
                 else if (item.binding == EntryBinding_DisplayMsaa) {
-                    s32 msaaIndex = GetBoundValue(item);
-                    if (selected && m_pendingMsaaActive) {
-                        msaaIndex = m_pendingMsaaIndex;
-                    }
+                    const s32 msaaIndex = GetBoundValue(item);
                     const s32 msaaSamples = MsaaOptionIndexToSamples(msaaIndex);
                     const char* msaaToken = (msaaSamples == 0)
                         ? "FE_OFF"
