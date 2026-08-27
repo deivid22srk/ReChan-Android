@@ -65,6 +65,10 @@ HudContext ComputeContext() {
         case GameState::EndGameLoop:
             // EndGameLoop = Game Over screen ("Press A to continue"): needs the
             // navigation set so touch-only players can confirm and leave it.
+        case GameState::EndLevelLoop:
+            // EndLevelLoop = Level Results / tally ("Press [A] to continue"):
+            // A fast-forwards the count and confirms, Start closes it too -
+            // the navigation set covers everything a gamepad player uses.
             return HudContext::Menu;
 
         case GameState::Intro:
@@ -130,6 +134,10 @@ void PublishFrame() {
     //                                  input, hence the gameOverFadeType gate)
     //   - Intro legal splash : A     (AnyJustPressed skips the splash; on PC
     //                                  any mouse button does the same)
+    //   - EndLevelLoop       : A     (Level Results tally: during the count
+    //                                  A = fast-forward - same as holding A on
+    //                                  a real pad; once "Press [A] to continue"
+    //                                  shows, A confirms and leaves the screen)
     // Two frames so the pad edge is sampled reliably. Suspended while a
     // physical gamepad is connected: the real pad's own Start/A must drive
     // these screens, and a stray screen tap must not.
@@ -148,6 +156,9 @@ void PublishFrame() {
             else if (st == GameState::Intro
                      && g_game && g_game->IsIntroSplashActive()
                      && s_confirmPulseFrames == 0) {
+                s_confirmPulseFrames = 2;
+            }
+            else if (st == GameState::EndLevelLoop && s_confirmPulseFrames == 0) {
                 s_confirmPulseFrames = 2;
             }
         }

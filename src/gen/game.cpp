@@ -1187,6 +1187,13 @@ bool Game::gsTitleLoopState(Game* game) {
         if (renderMgr) {
             renderMgr->Render();
         }
+#if defined(RC_PLATFORM_ANDROID)
+        // The title menu runs on its own render path (no HUD::Display), so
+        // draw the on-screen touch controls explicitly - otherwise the
+        // virtual joystick/A/B/Start stay active but invisible, unlike the
+        // pause menu which renders them via CustomMenuRender.
+        touchcontrols::Render();
+#endif
         g_display->EndFrame();
 
         if (menuResult == 4) {
@@ -2186,6 +2193,14 @@ bool Game::gsEndGameLoopState(Game* game) {
         game->gameOverScreen->Render();
 #endif
     }
+#if defined(RC_PLATFORM_ANDROID)
+    // This state renders through its own path (no HUD::Display), so without
+    // this call the virtual A/Start buttons stay ACTIVE yet INVISIBLE on the
+    // "Press A to continue" screen - touch-only players had only the
+    // tap-anywhere pulse. Draw the on-screen controls explicitly, same as
+    // the pause menu does via CustomMenuRender.
+    touchcontrols::Render();
+#endif
 
     if (game->gameOverFadeType != 0) {
         s32 stillFading = FadeUpdate();
