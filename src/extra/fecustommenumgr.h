@@ -407,6 +407,13 @@ public:
     bool IsMouseActive() const { return m_mouseInputActive; }
     MenuPage GetCurrentPage() const { return m_currPage; }
 
+    // True when the current page cannot be fully operated by direct touch
+    // (ProcessTouchTaps + steppers): scrolling lists, table layouts and the
+    // key-binding grid still need virtual D-pad navigation. Generic list
+    // pages (title/options/settings/cheats/confirms/location) are fully
+    // tappable, so the on-screen gamepad there is redundant clutter.
+    bool NeedsVirtualPadNavigation() const;
+
     void RenderAutosaveSpinner(s32 centerX, s32 centerY, f32 alpha01 = 1.0f) const;
 
     // Called by settings.cpp when the controller-prompt-style setting changes,

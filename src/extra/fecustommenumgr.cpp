@@ -558,6 +558,44 @@ static bool IsSaveSlotPage(MenuPage page) {
         || page == MenuPage_DeleteSlots;
 }
 
+bool feCustomMenuMgr::NeedsVirtualPadNavigation() const {
+    switch (m_currPage) {
+        case MenuPage_KeyBindings:
+            // Own row/slot grid layout (RenderKeyBindingsPage) + scrolling:
+            // taps don't hit its rows, and the list scrolls with Up/Down.
+            return true;
+
+#ifdef MOD_LOADER
+        case MenuPage_Mods:
+            // Mod list is rendered by RenderModsPage and scrolls with
+            // Up/Down - the virtual stick is the only touch scroll path.
+            return true;
+#endif
+
+        case MenuPage_LoadSlots:
+        case MenuPage_SaveSlots:
+        case MenuPage_DeleteSlots:
+            // Slot table (RenderSaveSlotsPage) scrolls with Up/Down; its
+            // rows are NOT laid out by the generic entry layout that
+            // ProcessTouchTaps() hit-tests, so the stick + A are required.
+            return true;
+
+#if AUTO_UPDATER
+        case MenuPage_Changelog:
+            // Scrolling text: Up/Down (or mouse wheel, which Android has
+            // none of). Not compiled on Android, kept correct elsewhere.
+            return true;
+#endif
+
+        default:
+            // Generic list pages (Title/Frontend/Pause/StartGame/Options/
+            // Controller/Display/Sound/Cheats/confirms/Location/AssetMissing):
+            // every row is directly tappable and adjustable rows carry
+            // "< value >" steppers - the on-screen pad would be redundant.
+            return false;
+    }
+}
+
 static s32 SaveSlotToDisplayIndex(s32 slotIndex);
 static s32 SaveDisplayIndexToSlot(s32 displayIndex);
 

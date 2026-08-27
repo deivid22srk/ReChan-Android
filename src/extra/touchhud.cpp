@@ -43,10 +43,15 @@ bool IsClimbState(s32 actionState) {
 }
 
 HudContext ComputeContext() {
-    // Custom menu overlays (asset setup, pause, title/FE menus) always win:
-    // they need d-pad style navigation, available with or without a gamepad.
+    // Custom menu overlays (asset setup, pause, title/FE menus): the generic
+    // list pages are fully touch-operable (direct entry taps + "< value >"
+    // steppers), so the on-screen pad there is redundant clutter - hide it.
+    // Only the pages that cannot be driven by taps (scrolling lists, slot
+    // tables, key-binding grid) keep the d-pad navigation set.
     if (g_feCustomMenuMgr && g_feCustomMenuMgr->IsActive()) {
-        return HudContext::Menu;
+        return g_feCustomMenuMgr->NeedsVirtualPadNavigation()
+            ? HudContext::Menu
+            : HudContext::Hidden;
     }
 
     if (!g_game) {
@@ -54,6 +59,16 @@ HudContext ComputeContext() {
     }
 
     switch (g_game->GetState()) {
+        // These states are only reached WITHOUT an active custom menu in
+        // non-interactive moments (transitions or "press a button" screens):
+        //   - Title/TitleLoop: press-start phase - a tap anywhere pulses
+        //     Start (PublishFrame), so no visible pad is needed;
+        //   - OpenFE/FE/Menu/LocationMenu/OpenLocationMenu: 1-frame
+        //     transitions or frames where the menu is not up yet;
+        //   - DbgMenu: empty stub, nothing interactive;
+        //   - EndGameLoop: Game Over "press A to continue" - tap pulses A;
+        //   - EndLevelLoop: Level Results tally - tap pulses A (fast-forward
+        //     during the count, confirm after).
         case GameState::Title:
         case GameState::TitleLoop:
         case GameState::OpenFE:
@@ -63,13 +78,8 @@ HudContext ComputeContext() {
         case GameState::LocationMenu:
         case GameState::OpenLocationMenu:
         case GameState::EndGameLoop:
-            // EndGameLoop = Game Over screen ("Press A to continue"): needs the
-            // navigation set so touch-only players can confirm and leave it.
         case GameState::EndLevelLoop:
-            // EndLevelLoop = Level Results / tally ("Press [A] to continue"):
-            // A fast-forwards the count and confirms, Start closes it too -
-            // the navigation set covers everything a gamepad player uses.
-            return HudContext::Menu;
+            return HudContext::Hidden;
 
         case GameState::Intro:
             // Legal splash auto-expires, but a tap can skip it (see the
