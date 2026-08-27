@@ -194,8 +194,16 @@ public:
     bool IsBorderless() override { return false; }
     void SetResolution(int w, int h) override { width = w; height = h; }
     void SetVSync(bool enabled) override;
-    void SetMSAA(int) override {}
-    int  GetMSAA() override { return 0; }
+    void SetMSAA(int samples) override;
+    int  GetMSAA() override { return msaaAppliedSamples; }
+
+    // Runtime-switchable AA: the EGL config stays single-sample (changing it
+    // would mean destroying the GL context), so frames render into an
+    // offscreen multisampled framebuffer that is resolved onto the window
+    // framebuffer right before the swap. glesContext calls BeginMsaaFrame at
+    // BeginFrame and ResolveMsaaFrame at EndFrame.
+    bool BeginMsaaFrame(int viewportW, int viewportH);
+    void ResolveMsaaFrame();
     void SetWindowPos(int, int) override {}
 
     void SetTitle(const char*) override {}
@@ -220,6 +228,20 @@ private:
     void* eglSurfaceWindow_ = nullptr; // ANativeWindow the surface was created from
     unsigned long long surfaceGen_ = 0; // androidbridge generation at creation
 #endif
+
+    // Offscreen multisampled framebuffer (runtime AA). All fields are only
+    // touched from the game thread, which owns the GL context.
+    void DestroyMsaaFramebuffer();
+    bool EnsureMsaaFramebuffer(int w, int h);
+    int msaaRequestedSamples = 0; // last requested sample count (0 = off)
+    int msaaAppliedSamples = 0;   // samples actually allocated (0 = off)
+    u32 msaaFramebuffer = 0;
+    u32 msaaColorRbo = 0;
+    u32 msaaDepthRbo = 0;
+    int msaaWidth = 0;
+    int msaaHeight = 0;
+    bool msaaFrameActive = false; // MSAA framebuffer bound for the current frame
+
     int width = 1280;
     int height = 720;
     bool shouldClose = false;

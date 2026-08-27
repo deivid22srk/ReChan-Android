@@ -1061,6 +1061,9 @@ glesDisplay::~glesDisplay() {
     if (!dpy) {
         return;
     }
+    // Free the MSAA framebuffer while the context may still be current;
+    // with no current context these calls are harmless no-ops.
+    DestroyMsaaFramebuffer();
     eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     if (eglContext_) {
         eglDestroyContext(dpy, static_cast<EGLContext>(eglContext_));
@@ -1192,7 +1195,207 @@ bool glesDisplay::InitDisplay(const pddiDisplayInit& init) {
     eglDisplay_ = dpy;
     eglSurface_ = surface;
     eglContext_ = context;
+
+    // Honour a startup sample count (tContextInitData::msaa). The offscreen
+    // MSAA framebuffer is created lazily on the first BeginMsaaFrame.
+    if (init.msaa > 0) {
+        SetMSAA(init.msaa);
+    }
     return true;
+}
+
+// ---- glesDisplay MSAA -------------------------------------------------
+// The window surface's EGL config is fixed once the context exists (changing
+// it would require destroying the context and every GL object with it), so
+// anti-aliasing is done through an offscreen multisampled framebuffer: each
+// frame is rendered into it and resolved onto the window framebuffer with a
+// blit right before the swap. The sample count can therefore change at
+// runtime, instantly, from the settings menu.
+
+static int ClampGlesMsaaSamples(int samples) {
+    if (samples <= 0) {
+        return 0;
+    }
+
+    static const int kAllowed[] = { 2, 4, 8, 16 };
+    int closest = kAllowed[0];
+    int closestDist = (samples > closest) ? (samples - closest) : (closest - samples);
+    for (u32 i = 1; i < (u32)(sizeof(kAllowed) / sizeof(kAllowed[0])); i++) {
+        const int candidate = kAllowed[i];
+        const int dist = (samples > candidate) ? (samples - candidate) : (candidate - samples);
+        if (dist < closestDist) {
+            closest = candidate;
+            closestDist = dist;
+        }
+    }
+
+    GLint maxSamples = 0;
+    glGetIntegerv(GL_MAX_SAMPLES, &maxSamples);
+    if (maxSamples > 0 && closest > maxSamples) {
+        int fallback = 0;
+        for (u32 i = 0; i < (u32)(sizeof(kAllowed) / sizeof(kAllowed[0])); i++) {
+            if (kAllowed[i] <= maxSamples) {
+                fallback = kAllowed[i];
+            }
+        }
+        closest = fallback;
+    }
+
+    return closest;
+}
+
+void glesDisplay::DestroyMsaaFramebuffer() {
+    msaaFrameActive = false;
+    msaaAppliedSamples = 0;
+    msaaWidth = 0;
+    msaaHeight = 0;
+    if (msaaColorRbo) {
+        glDeleteRenderbuffers(1, &msaaColorRbo);
+        msaaColorRbo = 0;
+    }
+    if (msaaDepthRbo) {
+        glDeleteRenderbuffers(1, &msaaDepthRbo);
+        msaaDepthRbo = 0;
+    }
+    if (msaaFramebuffer) {
+        glDeleteFramebuffers(1, &msaaFramebuffer);
+        msaaFramebuffer = 0;
+    }
+}
+
+bool glesDisplay::EnsureMsaaFramebuffer(int w, int h) {
+    if (msaaFramebuffer && msaaAppliedSamples > 0 &&
+        msaaWidth == w && msaaHeight == h) {
+        return true;
+    }
+
+    GLint prevFbo = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFbo);
+
+    DestroyMsaaFramebuffer();
+    int samples = ClampGlesMsaaSamples(msaaRequestedSamples);
+    if (w <= 0 || h <= 0 || samples <= 0) {
+        glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prevFbo);
+        return false;
+    }
+
+    // Try the requested count, halving on failure until 2x; give up (0) if
+    // multisampled renderbuffers are not supported at all.
+    while (samples >= 2) {
+        while (glGetError() != GL_NO_ERROR) {} // drain stale errors before probing
+
+        GLuint fbo = 0, color = 0, depth = 0;
+        glGenFramebuffers(1, &fbo);
+        glGenRenderbuffers(1, &color);
+        glGenRenderbuffers(1, &depth);
+
+        glBindRenderbuffer(GL_RENDERBUFFER, color);
+        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_RGBA8, w, h);
+        glBindRenderbuffer(GL_RENDERBUFFER, depth);
+        glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_DEPTH24_STENCIL8, w, h);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                  GL_RENDERBUFFER, color);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+                                  GL_RENDERBUFFER, depth);
+
+        const bool complete =
+            glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE &&
+            glGetError() == GL_NO_ERROR;
+
+        if (complete) {
+            msaaFramebuffer = fbo;
+            msaaColorRbo = color;
+            msaaDepthRbo = depth;
+            msaaWidth = w;
+            msaaHeight = h;
+            msaaAppliedSamples = samples;
+            glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prevFbo);
+            LogGles("glesDisplay: MSAA %dx enabled (framebuffer %dx%d)", samples, w, h);
+            return true;
+        }
+
+        glDeleteFramebuffers(1, &fbo);
+        glDeleteRenderbuffers(1, &color);
+        glDeleteRenderbuffers(1, &depth);
+        samples /= 2;
+    }
+
+    while (glGetError() != GL_NO_ERROR) {}
+    glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prevFbo);
+    LogGles("glesDisplay: MSAA unavailable (requested %d), rendering without AA",
+            msaaRequestedSamples);
+    // Hard failure: drop the request so BeginMsaaFrame does not retry the
+    // allocation every frame; a new SetMSAA re-arms it. GetMSAA() reports 0
+    // so callers see that AA is actually off.
+    msaaRequestedSamples = 0;
+    return false;
+}
+
+void glesDisplay::SetMSAA(int samples) {
+    // Remember the request; without a current GL context (init not done, or
+    // the surface is parked while paused) the framebuffer is created lazily
+    // by the first BeginMsaaFrame after (re)activation.
+    msaaRequestedSamples = samples > 0 ? samples : 0;
+
+    if (!eglContext_ || !eglSurface_) {
+        return;
+    }
+
+    if (msaaRequestedSamples <= 0) {
+        DestroyMsaaFramebuffer();
+        return;
+    }
+
+    EnsureMsaaFramebuffer(width, height);
+}
+
+bool glesDisplay::BeginMsaaFrame(int viewportW, int viewportH) {
+    if (msaaRequestedSamples <= 0) {
+        return false;
+    }
+
+    if (!msaaFramebuffer || msaaAppliedSamples <= 0 ||
+        msaaWidth != viewportW || msaaHeight != viewportH) {
+        if (!EnsureMsaaFramebuffer(viewportW, viewportH)) {
+            return false;
+        }
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, msaaFramebuffer);
+    glViewport(0, 0, msaaWidth, msaaHeight);
+    glScissor(0, 0, msaaWidth, msaaHeight);
+    glEnable(GL_SCISSOR_TEST);
+    msaaFrameActive = true;
+    return true;
+}
+
+void glesDisplay::ResolveMsaaFrame() {
+    if (!msaaFrameActive || !msaaFramebuffer) {
+        return;
+    }
+    msaaFrameActive = false;
+
+    GLboolean prevColorMask[4] = { GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE };
+    glGetBooleanv(GL_COLOR_WRITEMASK, prevColorMask);
+    const GLboolean prevScissor = glIsEnabled(GL_SCISSOR_TEST);
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, msaaFramebuffer);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    // The blit is the multisample resolve; scissor and colour-mask state
+    // would clip it, so neutralize both for the duration of the copy.
+    glDisable(GL_SCISSOR_TEST);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glBlitFramebuffer(0, 0, msaaWidth, msaaHeight,
+                      0, 0, msaaWidth, msaaHeight,
+                      GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+    glColorMask(prevColorMask[0], prevColorMask[1], prevColorMask[2], prevColorMask[3]);
+    if (prevScissor) {
+        glEnable(GL_SCISSOR_TEST);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 void glesDisplay::SwapBuffers() {
@@ -1318,16 +1521,25 @@ void glesContext::BeginFrame() {
     int vx, vy, vw, vh;
     display->GetViewport(vx, vy, vw, vh);
 
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    glViewport(vx, vy, vw, vh);
-    glScissor(vx, vy, vw, vh);
-    glEnable(GL_SCISSOR_TEST);
+    if (display->BeginMsaaFrame(vw, vh)) {
+        // Rendering into the offscreen multisampled framebuffer this frame;
+        // it already set the viewport/scissor to the window-sized target.
+    }
+    else {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(vx, vy, vw, vh);
+        glScissor(vx, vy, vw, vh);
+        glEnable(GL_SCISSOR_TEST);
+    }
     stateDirty = true;
     activeRenderTarget = nullptr;
 }
 
 void glesContext::EndFrame() {
     glDisable(GL_SCISSOR_TEST);
+    // Resolve the multisampled frame (if AA is on) onto the window
+    // framebuffer before the swap.
+    display->ResolveMsaaFrame();
     glFlush();
 }
 
