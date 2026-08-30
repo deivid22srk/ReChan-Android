@@ -1,6 +1,9 @@
 // game.cpp
 #include "common.h"
 #include "gen/game.h"
+#if defined(RC_PLATFORM_ANDROID)
+#include "extra/touchcontrols.h"
+#endif
 #include "gen/display.h"
 #include "gen/envmgr.h"
 #include "gen/camera.h"
@@ -1184,6 +1187,13 @@ bool Game::gsTitleLoopState(Game* game) {
         if (renderMgr) {
             renderMgr->Render();
         }
+#if defined(RC_PLATFORM_ANDROID)
+        // The title menu runs on its own render path (no HUD::Display), so
+        // draw the on-screen touch controls explicitly - otherwise the
+        // virtual joystick/A/B/Start stay active but invisible, unlike the
+        // pause menu which renders them via CustomMenuRender.
+        touchcontrols::Render();
+#endif
         g_display->EndFrame();
 
         if (menuResult == 4) {
@@ -1352,10 +1362,15 @@ bool Game::gsOpenFEState(Game* game) {
         game->SetState(GameState::QueueLevelLoad);
     }
     else {
-#if CUSTOM_MENU
-        g_feCustomMenuMgr->Activate();
-#endif
         // No level selected - show FE menu
+        // NOTE: intentionally does NOT Activate() the custom menu here. This
+        // state immediately hands off to FE -> OpenLocationMenu ->
+        // QueueLevelLoad -> PrePlay -> Play, and none of those states Invoke()
+        // the custom menu (its only Invoke sites are Intro/TitleLoop/Menu/
+        // LocationMenu). A menu left "active" from here would ride along into
+        // Play as stale bookkeeping and keep the contextual touch HUD (and the
+        // virtual joystick) hidden for the whole hub visit - exactly what
+        // happened to fresh-save players on touch-only devices.
         game->SetState(GameState::FE);
     }
     return true;
@@ -2183,6 +2198,14 @@ bool Game::gsEndGameLoopState(Game* game) {
         game->gameOverScreen->Render();
 #endif
     }
+#if defined(RC_PLATFORM_ANDROID)
+    // This state renders through its own path (no HUD::Display), so without
+    // this call the virtual A/Start buttons stay ACTIVE yet INVISIBLE on the
+    // "Press A to continue" screen - touch-only players had only the
+    // tap-anywhere pulse. Draw the on-screen controls explicitly, same as
+    // the pause menu does via CustomMenuRender.
+    touchcontrols::Render();
+#endif
 
     if (game->gameOverFadeType != 0) {
         s32 stillFading = FadeUpdate();
@@ -2295,6 +2318,12 @@ void Game::PlayMovie(const char* name, s32 skippable, s32 unloadLevel) {
         f64 prevFrame = Time::GetTimeInSeconds();
         f32 targetDt = 1.0f / player->GetFrameRate();
 
+#if defined(RC_PLATFORM_ANDROID)
+        // The skip button only shows (and only feeds input) for skippable
+        // movies; logo/credit movies must not display a fake skip button.
+        touchcontrols::SetMovieSkippable(skippable != 0);
+#endif
+
         while (!player->IsFinished() && !p3d::display->ShouldClose()) {
             f64 now = Time::GetTimeInSeconds();
             f32 elapsed = (f32)(now - prevFrame);
@@ -2324,10 +2353,23 @@ void Game::PlayMovie(const char* name, s32 skippable, s32 unloadLevel) {
 
             player->AdvanceFrame();
 
+#if defined(RC_PLATFORM_ANDROID)
+            touchcontrols::UpdateMovieSkip();
+#endif
+
             g_display->BeginFrame();
             player->Render();
+#if defined(RC_PLATFORM_ANDROID)
+            touchcontrols::RenderMovieSkip();
+#endif
             g_display->EndFrame();
         }
+
+#if defined(RC_PLATFORM_ANDROID)
+        // Release the virtual Start press (a skip leaves it held down) and
+        // clear the skip state so it never leaks into the next game state.
+        touchcontrols::EndMovieSkip();
+#endif
     }
 
     // PSX: destructor 0x8001434C with param 3

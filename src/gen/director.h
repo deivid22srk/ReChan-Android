@@ -52,6 +52,7 @@ enum class DirectorOpcode : s32 {
     DropPickup = 0x2A,
     CameraFunc = 0x2B,
     DoorFunc = 0x38,
+    AttachThingToDoor = 0x3E,
     FacePointAndNisControl = 0x40,
     LadderFunc = 0x41,
     ModelFunc = 0x47,
@@ -130,6 +131,7 @@ static inline const char* CmdToString(DirectorOpcode op) {
         case DirectorOpcode::DropPickup: return "DropPickup";
         case DirectorOpcode::CameraFunc: return "CameraFunc";
         case DirectorOpcode::DoorFunc: return "DoorFunc";
+        case DirectorOpcode::AttachThingToDoor: return "AttachThingToDoor";
         case DirectorOpcode::FacePointAndNisControl: return "FacePointAndNisControl";
         case DirectorOpcode::LadderFunc: return "LadderFunc";
         case DirectorOpcode::ModelFunc: return "ModelFunc";

@@ -367,6 +367,9 @@ void Door::HandleHumanoidCollision(Humanoid* hum) {
 
     if (isValidPlayer && doorState == 1) {
         // PSX: state 1 + valid player  trigger door cutscene via Director
+        LOG("[Door::HandleHumanoidCollision] triggering door NIS (name=%s state=%d killTarget=%d script=%s)",
+            GetName() ? GetName() : "null", doorState, killTarget ? 1 : 0,
+            killTarget ? "WithDialog" : "Plain");
         if (g_director) {
             // PSX: if killTarget exists, use NISdoor1WithDialog; else NISdoor1
             s32* doorScript = killTarget

@@ -7,6 +7,10 @@
 #include "pddi/gles/AndroidPlatform.h"
 #include "pddi/pddidev.h"
 
+// Defined at file scope below (after the anonymous namespace) so that
+// AndroidShell.cpp can link against it.
+void RechanAndroidResetTouch();
+
 namespace {
 
 constexpr int32_t kSourceGamepadMask =
@@ -70,6 +74,111 @@ int HatToButtons(float hatX, float hatY) {
     return buttons;
 }
 
+// Pointer id of the first finger driving the emulated mouse (-1 = none).
+// The multi-touch slots (androidbridge) track all fingers; the primary
+// index is the first slot that was assigned (used for menu hover).
+int32_t s_touchPointer = -1;
+
+static void AdoptPrimaryFromSlots() {
+    // Primary finger went away — either adopt another live finger or reset
+    // the emulated mouse. Runs on the input thread only.
+    androidbridge::TouchPoint pts[androidbridge::kMaxTouchPoints];
+    const int32_t cnt = androidbridge::LoadTouchPoints(pts, androidbridge::kMaxTouchPoints);
+    if (cnt > 0) {
+        s_touchPointer = pts[0].id;
+        androidbridge::SetTouchMouse(pts[0].x, pts[0].y, false);
+    }
+    else {
+        s_touchPointer = -1;
+        androidbridge::SetTouchMouse(0.0f, 0.0f, false);
+    }
+}
+
+// (RechanAndroidResetTouch is defined at file scope below, after the
+// anonymous namespace, so AndroidShell.cpp can link against it.)
+
+static void HandleTouchEvent(AInputEvent* event) {
+    const int32_t action = AMotionEvent_getAction(event);
+    const int32_t actionCode = action & AMOTION_EVENT_ACTION_MASK;
+    const int32_t idx = (action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK)
+                            >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
+    const int32_t pointerId = AMotionEvent_getPointerId(event, idx);
+    const float x = AMotionEvent_getX(event, idx);
+    const float y = AMotionEvent_getY(event, idx);
+
+    switch (actionCode) {
+        case AMOTION_EVENT_ACTION_DOWN:
+        case AMOTION_EVENT_ACTION_POINTER_DOWN: {
+            // AcquireTouchSlot indexes the real bridge slots (reusing any
+            // stale same-id entry) — never the compacted LoadTouchPoints()
+            // view, which used to send a finger's data into the WRONG slot.
+            if (androidbridge::AcquireTouchSlot(pointerId, x, y) >= 0) {
+                if (s_touchPointer == -1) {
+                    s_touchPointer = pointerId;
+                    androidbridge::SetTouchMouse(x, y, false);
+                    androidbridge::QueueTouchTap();
+                }
+            }
+            break;
+        }
+        case AMOTION_EVENT_ACTION_MOVE: {
+            const int32_t pointerCount = AMotionEvent_getPointerCount(event);
+            for (int32_t i = 0; i < pointerCount; ++i) {
+                const int32_t pid = AMotionEvent_getPointerId(event, i);
+                const float px = AMotionEvent_getX(event, i);
+                const float py = AMotionEvent_getY(event, i);
+                int32_t slot = androidbridge::FindTouchSlotById(pid);
+                if (slot < 0) {
+                    // Missed the DOWN (slot pressure at the time): self-heal
+                    // by claiming a slot now instead of dropping the finger.
+                    slot = androidbridge::AcquireTouchSlot(pid, px, py);
+                    if (slot < 0) continue;
+                }
+                androidbridge::SetTouchPoint(slot, pid, px, py, true);
+            }
+            // Keep the emulated mouse on the primary finger.
+            if (s_touchPointer >= 0) {
+                androidbridge::TouchPoint pts[androidbridge::kMaxTouchPoints];
+                const int32_t cnt = androidbridge::LoadTouchPoints(pts, androidbridge::kMaxTouchPoints);
+                bool found = false;
+                for (int32_t i = 0; i < cnt; ++i) {
+                    if (pts[i].id == s_touchPointer) {
+                        androidbridge::SetTouchMouse(pts[i].x, pts[i].y, false);
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    AdoptPrimaryFromSlots();
+                }
+            }
+            break;
+        }
+        case AMOTION_EVENT_ACTION_UP:
+        case AMOTION_EVENT_ACTION_POINTER_UP: {
+            const int32_t slot = androidbridge::FindTouchSlotById(pointerId);
+            if (slot >= 0) {
+                androidbridge::QueueTouchTapPos(x, y);
+                androidbridge::ClearTouchPoint(slot);
+                if (pointerId == s_touchPointer) {
+                    AdoptPrimaryFromSlots();
+                }
+            }
+            break;
+        }
+        case AMOTION_EVENT_ACTION_CANCEL: {
+            // CANCEL aborts the entire gesture — every finger is up as far as
+            // the app is concerned. Clearing only the indexed pointer used to
+            // strand the others as "zombie" slots (joystick stuck dragging,
+            // buttons dead once the zombies filled all 4 slots).
+            RechanAndroidResetTouch();
+            break;
+        }
+        default:
+            break;
+    }
+}
+
 void ApplyHatButtons(int32_t deviceId, int wanted) {
     // Per-device diff state: a pad without HAT axes keeps emitting 0 and must
     // not clear the D-pad held on a different controller.
@@ -117,6 +226,14 @@ bool HandleKeyEvent(AInputEvent* event) {
     const int32_t keyCode = AKeyEvent_getKeyCode(event);
     const bool down = AKeyEvent_getAction(event) == AKEY_EVENT_ACTION_DOWN;
 
+    // Ghost devices (Xiaomi uinput fingerprint readers posing as gamepads,
+    // see AndroidPlatform.h): swallow their events entirely — no phantom
+    // buttons, no pad-presence confirm. The id blacklist is pushed by
+    // GameActivity's InputDevice scan.
+    if (androidbridge::IsGhostPadDeviceId(AInputEvent_getDeviceId(event))) {
+        return true;
+    }
+
     if (IsMenuKey(keyCode)) {
         androidbridge::PostGamepadConnected(true);
         androidbridge::PostGamepadButton(GamepadButton::Start, down);
@@ -125,6 +242,13 @@ bool HandleKeyEvent(AInputEvent* event) {
 
     if (const KeyButtonEntry* entry = FindKeyEntry(keyCode)) {
         androidbridge::PostGamepadConnected(true);
+        // Gamepad-sourced button keys confirm a physical pad is present.
+        // Source must be GAMEPAD (not DPAD/KEYBOARD): TV remotes and the
+        // device's own hardware keys also send DPAD_* codes, but they can't
+        // drive analog gameplay and must not hide the touch HUD.
+        if ((AInputEvent_getSource(event) & AINPUT_SOURCE_GAMEPAD) != 0) {
+            androidbridge::SetPhysicalPadConnected(true);
+        }
         if (entry->pddiButton >= 0) {
             androidbridge::PostGamepadButton(entry->pddiButton, down);
         }
@@ -143,11 +267,41 @@ bool HandleKeyEvent(AInputEvent* event) {
 
 bool HandleMotionEvent(AInputEvent* event) {
     const int32_t source = AInputEvent_getSource(event);
+
+    // Touchscreen: feed the mouse POSITION for hover only (button state is
+    // intentionally NOT emulated — direct taps handled by the menu's
+    // ProcessTouchTaps would otherwise double-activate alongside a mouse
+    // left-click Confirm). Multi-touch slots drive the on-screen controls.
+    // Require BOTH source bits (class-pointer + touchscreen): mice, styluses
+    // and touchpads share the pointer class bit, and treating their events
+    // as finger input made the engine "recognize a mouse" that doesn't
+    // exist while the virtual gamepad was also active.
+    if ((source & AINPUT_SOURCE_TOUCHSCREEN) == AINPUT_SOURCE_TOUCHSCREEN) {
+        HandleTouchEvent(event);
+        return true;
+    }
+
+    // Ghost devices (Xiaomi uinput fingerprint readers posing as gamepads/
+    // joysticks, see AndroidPlatform.h): swallow — their gesture events
+    // must neither confirm pad presence nor drive the virtual stick
+    // (swipes on the fingerprint sensor would walk the character by
+    // themselves).
+    if (androidbridge::IsGhostPadDeviceId(AInputEvent_getDeviceId(event))) {
+        return true;
+    }
+
     if ((source & kSourceGamepadMask) == 0) {
         return false;
     }
 
     androidbridge::PostGamepadConnected(true);
+
+    // Stick/trigger motion confirms a physical pad is present. DPAD-source
+    // motion (TV remote navigation) is excluded for the same reason as
+    // above: it can't play, so the touch HUD must stay available.
+    if ((source & (AINPUT_SOURCE_GAMEPAD | AINPUT_SOURCE_JOYSTICK)) != 0) {
+        androidbridge::SetPhysicalPadConnected(true);
+    }
 
     const float lx = ClampAxis(AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_X, 0));
     const float ly = ClampAxis(AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_Y, 0));
@@ -178,6 +332,19 @@ bool HandleMotionEvent(AInputEvent* event) {
 }
 
 } // namespace
+
+// Drops every finger at once. ACTION_CANCEL aborts the WHOLE gesture (not
+// just one pointer), and lifecycle events (pause, lost focus, surface going
+// away) mean Android will never deliver the missing UPs — leaving the slots
+// set would freeze the joystick at its last deflection and keep "ghost"
+// fingers hogging every slot, which is exactly how the HUD died before.
+// Defined at file scope (external linkage): AndroidShell.cpp calls this from
+// its command handler.
+void RechanAndroidResetTouch() {
+    s_touchPointer = -1;
+    androidbridge::ClearAllTouchPoints();
+    androidbridge::SetTouchMouse(0.0f, 0.0f, false);
+}
 
 bool RechanAndroidHandleInputEvent(AInputEvent* event) {
     switch (AInputEvent_getType(event)) {

@@ -78,6 +78,12 @@ namespace ScreenDraw {
     void DrawColoredRect(f32 x, f32 y, f32 w, f32 h,
                          u8 r, u8 g, u8 b, u8 a);
 
+    // Draw a solid colored triangle. Only queues vertices, so it must be
+    // called inside an active ScreenDraw::Batch (state + flush handled there);
+    // this keeps ordering with the other batched primitives.
+    void DrawTriangle(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
+                      u8 r = 255, u8 g = 255, u8 b = 255, u8 a = 255);
+
     // Draw a fullscreen colored quad, used for fade transitions.
     void DrawColoredQuad(u8 r, u8 g, u8 b, u8 a);
 

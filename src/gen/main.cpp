@@ -36,6 +36,7 @@
 #endif
 
 #include "extra/version.h"
+#include "extra/touchhud.h"
 
 #include <vector>
 #include <algorithm>
@@ -323,6 +324,14 @@ static int RechanMain(int argc, char** argv) {
 
         p3d::display->PollEvents();
 
+#if defined(RC_PLATFORM_ANDROID)
+        // Feed the virtual gamepad BEFORE polling input so this frame's
+        // touch hits land in the same ServiceInput/ActionInput snapshot
+        // (they used to be posted at the end of the frame and only became
+        // visible one frame later).
+        touchhud::ProcessInput();
+#endif
+
         if (p3d::input) {
             p3d::input->ServiceInput();
         }
@@ -376,6 +385,11 @@ static int RechanMain(int argc, char** argv) {
 
         jcsUpdateAmbience();
         jcsUpdateDialogCD();
+
+#if defined(RC_PLATFORM_ANDROID)
+        // Publish gameplay context for the touch overlay (no-op elsewhere).
+        touchhud::PublishFrame();
+#endif
 
         g_time->WaitForFrameEnd(frameStart);
 

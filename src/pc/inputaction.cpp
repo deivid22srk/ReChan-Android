@@ -387,6 +387,18 @@ void ActionInput::Update(PlatformInput* platform) {
 #if defined(RC_PLATFORM_SWITCH)
     const bool hasKeyboard = false;
     const bool hasMouse = false;
+#elif defined(RC_PLATFORM_ANDROID)
+    // Android is a touch-first console. The platform's "mouse position" is
+    // the user's FINGER, fed through the touch-as-mouse bridge in
+    // AndroidInput.cpp, and a physical keyboard never exists (IsKeyDown
+    // is permanently false). Counting the finger as desktop input made
+    // this device switch fight the virtual gamepad every frame: dragging
+    // the on-screen joystick also moved the touch-mouse, which cleared
+    // gamepadActive — freezing the analog controls, flipping prompts to
+    // keyboard glyphs and scrambling buttons through the control-map
+    // remap. Touch is the gamepad here; there is no desktop to switch to.
+    const bool hasKeyboard = false;
+    const bool hasMouse = false;
 #else
     const bool hasKeyboard = platform->HasAnyKeyboardInput();
     const bool hasMouse = platform->HasAnyMouseInput();
@@ -404,12 +416,21 @@ void ActionInput::Update(PlatformInput* platform) {
         hadKeyboardInputThisFrame = hasKeyboard;
         hadMouseInputThisFrame = hasMouse;
         hadGamepadInputThisFrame = hasGp;
+#if defined(RC_PLATFORM_ANDROID)
+        // Touch-only device: the virtual gamepad IS the primary (and only)
+        // input device. Staying in gamepad mode keeps the pad analog ('s'),
+        // keeps the analog override below active, keeps prompts on gamepad
+        // glyphs and skips the PSX control-map button remap, which is what
+        // made some on-screen buttons appear dead before.
+        gamepadActive = true;
+#else
         if (hasGp) {
             gamepadActive = true;
         }
         if (hasDesktop) {
             gamepadActive = false;
         }
+#endif
     }
 
     // Update all action states.

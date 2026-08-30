@@ -182,11 +182,14 @@ void main() {
         zeroTexel = (clutWord == 0u);
     }
 
+    // PSX SetTransparentTim (LOADERS.CPP:460) rewrote the magenta key
+    // colour in the CLUT to 0x0000 at texture-load time, so the GPU
+    // skipped those texels in EVERY draw mode. This port uploads raw
+    // CLUTs to VRAM, so discard the key colour on both keying paths:
+    // opaque (magenta key) and blended (zero-texel key).
+    if ((clutWord & 0x7FFFu) == 0x7C1Fu) discard;
     if (uUseZeroTexelKey != 0) {
         if (zeroTexel) discard;
-    }
-    else {
-        if ((clutWord & 0x7FFFu) == 0x7C1Fu) discard;
     }
 }
 )";
@@ -495,13 +498,14 @@ void main() {
         zeroTexel = (clutWord == 0u);
     }
 
-    // World/block content in this renderer commonly uses magenta keying,
-    // while blended effect paths use zero texel keying.
+    // PSX SetTransparentTim (LOADERS.CPP:460) rewrote the magenta key
+    // colour in the CLUT to 0x0000 at texture-load time, so the GPU
+    // skipped those texels in EVERY draw mode. This port uploads raw
+    // CLUTs to VRAM, so discard the key colour on both keying paths:
+    // opaque (magenta key) and blended (zero-texel key).
+    if ((clutWord & 0x7FFFu) == 0x7C1Fu) discard;
     if (uUseZeroTexelKey != 0) {
         if (zeroTexel) discard;
-    }
-    else {
-        if ((clutWord & 0x7FFFu) == 0x7C1Fu) discard;
     }
 
     float r = float(clutWord & 0x1Fu) / 31.0;

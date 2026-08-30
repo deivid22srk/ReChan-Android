@@ -29,12 +29,23 @@ android {
     // Matches AGP 8.9's default and the preinstalled default on GitHub runners.
     ndkVersion = "27.0.12077973"
 
+    // Stable sideload signing: the keystore is committed so APKs from any
+    // CI run (and local builds) share one signature and update in place.
+    signingConfigs {
+        create("sideload") {
+            storeFile = file("rechan.keystore")
+            storePassword = "rechan"
+            keyAlias = "rechan"
+            keyPassword = "rechan"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.deivid22srk.rechan"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.1"
+        versionCode = 2
+        versionName = "1.0.2"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
@@ -57,12 +68,12 @@ android {
     buildTypes {
         debug {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("sideload")
         }
         release {
             isMinifyEnabled = false
-            // Sideload distribution: sign releases with the debug key so the
-            // APK installs without extra setup.
-            signingConfig = signingConfigs.getByName("debug")
+            // Sideload distribution: same stable key for both build types.
+            signingConfig = signingConfigs.getByName("sideload")
         }
     }
 
